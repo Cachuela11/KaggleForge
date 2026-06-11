@@ -25,8 +25,10 @@ async def agent(system_prompt: str, user_text: str, *, cwd: Path) -> str:
             codex_bin=settings.codex_bin,
             model=settings.codex_model,
             reasoning_effort=settings.codex_reasoning_effort,
+            verbosity=settings.codex_verbosity,
             sandbox=settings.codex_sandbox,
             timeout=settings.codex_timeout,
+            inherit_proxy=settings.codex_inherit_proxy,
         )
         return await codex.run(
             instruction=system_prompt,
@@ -39,3 +41,16 @@ async def agent(system_prompt: str, user_text: str, *, cwd: Path) -> str:
         "Generated from input:\n"
         f"{user_text.strip()}\n"
     )
+
+
+def codex_status() -> dict[str, str | bool]:
+    codex = CodexCliRuntime(
+        codex_bin=settings.codex_bin,
+        model=settings.codex_model,
+        reasoning_effort=settings.codex_reasoning_effort,
+        verbosity=settings.codex_verbosity,
+        sandbox=settings.codex_sandbox,
+        timeout=settings.codex_timeout,
+        inherit_proxy=settings.codex_inherit_proxy,
+    )
+    return codex.status()

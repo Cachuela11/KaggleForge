@@ -67,6 +67,12 @@ class ResearchDB:
     def get_refined_idea(self) -> str:
         return self.read_text("refined_idea.md")
 
+    def save_competition_info(self, data: dict[str, Any]) -> None:
+        self.save_json("competition.json", data)
+
+    def get_competition_info(self) -> dict[str, Any]:
+        return self.read_json("competition.json", {})
+
     def save_plan(self, tasks: list[dict[str, str]]) -> None:
         self.save_json("plan_list.json", tasks)
 

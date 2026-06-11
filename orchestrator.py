@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 from db import ResearchDB
-from stages import RefineStage, ResearchStage, WriteStage
+from stages import RefineStage
 
 
 class Orchestrator:
-    """Runs the minimal MAARS pipeline from idea to report."""
+    """Runs the MLforge pipeline.
+
+    For now, only RefineStage is active. Research and Write will be aligned next.
+    """
 
     def __init__(self) -> None:
         self.db = ResearchDB()
         self.stages = [
             RefineStage(self.db),
-            ResearchStage(self.db),
-            WriteStage(self.db),
         ]
 
     async def start(self, idea: str) -> str:

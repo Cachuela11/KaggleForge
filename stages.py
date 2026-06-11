@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+
+from config import settings
 from db import ResearchDB
+from kaggle_integration import (
+    build_kaggle_refined_idea,
+    extract_competition_id,
+    fetch_competition,
+)
 from agent_runtime import agent
 from stage import Stage
 
@@ -11,12 +19,21 @@ class RefineStage(Stage):
         self.db = db
 
     async def execute(self) -> str:
-        idea = self.db.get_idea()
-        refined = await agent(
-            "Refine the rough research idea into a clear research proposal.",
-            idea,
-            cwd=self.db.session_dir,
+        raw_input = self.db.get_idea()
+        competition_id = extract_competition_id(raw_input)
+        if not competition_id:
+            raise RuntimeError(
+                "RefineStage currently expects a Kaggle competition URL, for example: "
+                "https://www.kaggle.com/competitions/titanic"
+            )
+
+        info = await asyncio.to_thread(
+            fetch_competition,
+            competition_id,
+            settings.dataset_dir,
         )
+        self.db.save_competition_info(info)
+        refined = build_kaggle_refined_idea(info)
         self.db.save_refined_idea(refined)
         return refined
 
