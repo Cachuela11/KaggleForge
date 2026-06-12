@@ -2,28 +2,43 @@ from __future__ import annotations
 
 import asyncio
 
+from agent_runtime import agent
 from config import settings
 from db import ResearchDB
 from kaggle_integration import (
-    build_kaggle_refined_idea,
+    build_kaggle_task,
     extract_competition_id,
     fetch_competition,
 )
-from agent_runtime import agent
+from prompts import CALIBRATE_SYSTEM
 from stage import Stage
 
 
-class RefineStage(Stage):
+class IntakeStage(Stage):
     def __init__(self, db: ResearchDB) -> None:
-        super().__init__("refine")
+        super().__init__("intake")
         self.db = db
 
     async def execute(self) -> str:
-        raw_input = self.db.get_idea()
+        task = await self._load_kaggle_task()
+        calibration = self.db.get_calibration()
+
+        if not calibration:
+            calibration = await agent(
+                CALIBRATE_SYSTEM,
+                self._build_calibrate_user(task),
+                cwd=self.db.session_dir,
+            )
+            self.db.save_calibration(calibration)
+
+        return calibration
+
+    async def _load_kaggle_task(self) -> str:
+        raw_input = self.db.get_source()
         competition_id = extract_competition_id(raw_input)
         if not competition_id:
             raise RuntimeError(
-                "RefineStage currently expects a Kaggle competition URL, for example: "
+                "IntakeStage 目前只接受 Kaggle competition URL，例如："
                 "https://www.kaggle.com/competitions/titanic"
             )
 
@@ -33,9 +48,41 @@ class RefineStage(Stage):
             settings.dataset_dir,
         )
         self.db.save_competition_info(info)
-        refined = build_kaggle_refined_idea(info)
-        self.db.save_refined_idea(refined)
-        return refined
+
+        task = build_kaggle_task(info)
+        self.db.save_task(task)
+        return task
+
+    @staticmethod
+    def _build_capability_profile() -> str:
+        timeout = f"{settings.codex_timeout} 秒" if settings.codex_timeout else "未显式设置"
+        model = settings.codex_model or "Codex 默认模型"
+        reasoning = settings.codex_reasoning_effort or "Codex 默认推理强度"
+        verbosity = settings.codex_verbosity or "Codex 默认输出详细度"
+        return "\n".join(
+            [
+                f"- Runtime: {settings.runtime}",
+                f"- Agent executor: {settings.codex_bin} exec",
+                f"- Model: {model}",
+                f"- Reasoning effort: {reasoning}",
+                f"- Verbosity: {verbosity}",
+                f"- Sandbox: {settings.codex_sandbox}",
+                f"- Single-agent timeout: {timeout}",
+                "- Execution model: one agent node maps to one `codex exec` call.",
+                "- Handoff rule: every agent should leave a concrete file artifact for the next node.",
+            ]
+        )
+
+    def _build_calibrate_user(self, task: str) -> str:
+        return (
+            "# Kaggle task\n\n"
+            f"{task}\n\n"
+            "# Runtime capability profile\n\n"
+            f"{self._build_capability_profile()}\n\n"
+            "# Calibration request\n\n"
+            "请定义这个项目里“一次 agent 执行”的原子操作边界。"
+            "后续 Strategy/Decompose/Execute/Verify/Evaluate stage 会依赖这个边界来拆任务。"
+        )
 
 
 class ResearchStage(Stage):
@@ -44,7 +91,8 @@ class ResearchStage(Stage):
         self.db = db
 
     async def execute(self) -> str:
-        refined = self.db.get_refined_idea()
+        task = self.db.get_task()
+        calibration = self.db.get_calibration()
         tasks = [
             {
                 "id": "1",
@@ -65,14 +113,15 @@ class ResearchStage(Stage):
         self.db.save_plan(tasks)
 
         outputs: list[str] = []
-        for task in tasks:
+        context = f"# Task\n\n{task}\n\n# Calibration\n\n{calibration}"
+        for task_item in tasks:
             result = await agent(
-                f"Execute research task: {task['title']}.",
-                f"{refined}\n\nTask summary: {task['summary']}",
+                f"Execute research task: {task_item['title']}.",
+                f"{context}\n\nTask summary: {task_item['summary']}",
                 cwd=self.db.session_dir,
             )
-            self.db.save_task_output(task["id"], result)
-            outputs.append(f"## Task {task['id']}: {task['title']}\n\n{result}")
+            self.db.save_task_output(task_item["id"], result)
+            outputs.append(f"## Task {task_item['id']}: {task_item['title']}\n\n{result}")
 
         return "\n\n".join(outputs)
 
@@ -83,16 +132,18 @@ class WriteStage(Stage):
         self.db = db
 
     async def execute(self) -> str:
-        refined = self.db.get_refined_idea()
+        task = self.db.get_task()
+        calibration = self.db.get_calibration()
         tasks = self.db.get_plan()
         task_sections = []
-        for task in tasks:
-            output = self.db.get_task_output(task["id"])
-            task_sections.append(f"### {task['title']}\n\n{output}")
+        for task_item in tasks:
+            output = self.db.get_task_output(task_item["id"])
+            task_sections.append(f"### {task_item['title']}\n\n{output}")
 
         paper = await agent(
-            "Write a concise research report in Markdown from the proposal and task outputs.",
-            f"# Refined Idea\n\n{refined}\n\n# Task Outputs\n\n" + "\n\n".join(task_sections),
+            "Write a concise research report in Markdown from the task brief, calibration, and task outputs.",
+            f"# Task\n\n{task}\n\n# Calibration\n\n{calibration}\n\n# Task Outputs\n\n"
+            + "\n\n".join(task_sections),
             cwd=self.db.session_dir,
         )
         self.db.save_paper(paper)

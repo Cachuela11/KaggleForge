@@ -33,15 +33,15 @@ async def main() -> None:
         print(result)
         return
 
-    idea = " ".join(sys.argv[1:]).strip()
-    if not idea:
-        idea = input("Research idea: ").strip()
-    if not idea:
-        raise SystemExit("Research idea cannot be empty.")
+    source = " ".join(sys.argv[1:]).strip()
+    if not source:
+        source = input("Kaggle competition URL: ").strip()
+    if not source:
+        raise SystemExit("Kaggle competition URL cannot be empty.")
 
     orchestrator = Orchestrator()
     try:
-        session_dir = await orchestrator.start(idea)
+        session_dir = await orchestrator.start(source)
     except Exception as exc:
         raise SystemExit(f"Error: {exc}") from exc
     print(f"\nDone. Results saved to: {session_dir}")

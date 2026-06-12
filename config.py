@@ -49,6 +49,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class Settings:
+    team_max_delegations: int = _env_int("MLFORGE_TEAM_MAX_DELEGATIONS", 5)
     runtime: str = _env("MLFORGE_RUNTIME", "mock")
     codex_bin: str = _env("MLFORGE_CODEX_BIN", "codex")
     codex_model: str = _env("MLFORGE_CODEX_MODEL", "")

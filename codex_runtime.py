@@ -124,7 +124,7 @@ class CodexCliRuntime:
                 "You are running through the Codex CLI.",
                 "Legacy in-process tool calling is not available.",
                 "Use the current working directory as the research session directory.",
-                "Useful files may include idea.md, competition.json, refined_idea.md, plan_list.json, tasks/, artifacts/, and paper.md.",
+                "Useful files may include source.md, competition.json, task.md, calibration.md, plan_list.json, tasks/, artifacts/, and paper.md.",
                 "Use shell/Python commands and file inspection when useful, then produce a concise final answer.",
                 "Do not ask for human input. Complete the requested node directly.",
                 "# User Task",

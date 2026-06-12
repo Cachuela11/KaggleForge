@@ -24,15 +24,26 @@ class ResearchDB:
             raise RuntimeError("No active session. Call create_session() first.")
         return self._root
 
-    def create_session(self, idea: str) -> str:
+    def create_session(self, source: str) -> str:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        words = re.sub(r"[^a-zA-Z0-9\s]", "", idea).lower().split()[:6]
-        slug = "-".join(words) or "research"
+        slug = self._source_slug(source)
         self.research_id = f"{timestamp}-{slug}"
         self._root = self.base_dir / self.research_id
         self._root.mkdir(parents=True, exist_ok=True)
-        (self._root / "tasks").mkdir(exist_ok=True)
         return self.research_id
+
+    @staticmethod
+    def _source_slug(source: str) -> str:
+        competition = re.search(
+            r"(?:https?://)?(?:www\.)?kaggle\.com/competitions/([a-zA-Z0-9_-]+)",
+            source.strip(),
+        )
+        if competition:
+            return competition.group(1).lower()
+
+        words = re.sub(r"[^a-zA-Z0-9\s_-]", "", source).lower().split()[:6]
+        slug = "-".join(words)
+        return slug or "research"
 
     def save_text(self, relative_path: str, text: str) -> None:
         path = self.session_dir / relative_path
@@ -55,17 +66,23 @@ class ResearchDB:
             return default
         return json.loads(text)
 
-    def save_idea(self, text: str) -> None:
-        self.save_text("idea.md", text)
+    def save_source(self, text: str) -> None:
+        self.save_text("source.md", text)
 
-    def get_idea(self) -> str:
-        return self.read_text("idea.md")
+    def get_source(self) -> str:
+        return self.read_text("source.md")
 
-    def save_refined_idea(self, text: str) -> None:
-        self.save_text("refined_idea.md", text)
+    def save_task(self, text: str) -> None:
+        self.save_text("task.md", text)
 
-    def get_refined_idea(self) -> str:
-        return self.read_text("refined_idea.md")
+    def get_task(self) -> str:
+        return self.read_text("task.md")
+
+    def save_calibration(self, text: str) -> None:
+        self.save_text("calibration.md", text)
+
+    def get_calibration(self) -> str:
+        return self.read_text("calibration.md")
 
     def save_competition_info(self, data: dict[str, Any]) -> None:
         self.save_json("competition.json", data)

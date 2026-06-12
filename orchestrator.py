@@ -1,24 +1,24 @@
 from __future__ import annotations
 
 from db import ResearchDB
-from stages import RefineStage
+from stages import IntakeStage
 
 
 class Orchestrator:
     """Runs the MLforge pipeline.
 
-    For now, only RefineStage is active. Research and Write will be aligned next.
+    For now, only IntakeStage is active. Research and Write will be aligned next.
     """
 
     def __init__(self) -> None:
         self.db = ResearchDB()
         self.stages = [
-            RefineStage(self.db),
+            IntakeStage(self.db),
         ]
 
-    async def start(self, idea: str) -> str:
-        self.db.create_session(idea)
-        self.db.save_idea(idea)
+    async def start(self, source: str) -> str:
+        self.db.create_session(source)
+        self.db.save_source(source)
 
         for stage in self.stages:
             print(f"[{stage.name}] running")
