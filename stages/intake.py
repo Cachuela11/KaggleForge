@@ -67,6 +67,8 @@ class IntakeStage(Stage):
                 f"- Reasoning effort: {reasoning}",
                 f"- Verbosity: {verbosity}",
                 f"- Sandbox: {settings.codex_sandbox}",
+                f"- Sandbox provider: {settings.codex_sandbox_provider}",
+                f"- Docker image: {settings.codex_docker_image or '未配置'}",
                 f"- Single-agent timeout: {timeout}",
                 "- Execution model: one agent node maps to one `codex exec` call.",
                 "- Handoff rule: every agent should leave a concrete file artifact for the next node.",
@@ -83,68 +85,3 @@ class IntakeStage(Stage):
             "请定义这个项目里“一次 agent 执行”的原子操作边界。"
             "后续 Strategy/Decompose/Execute/Verify/Evaluate stage 会依赖这个边界来拆任务。"
         )
-
-
-class ResearchStage(Stage):
-    def __init__(self, db: ResearchDB) -> None:
-        super().__init__("research")
-        self.db = db
-
-    async def execute(self) -> str:
-        task = self.db.get_task()
-        calibration = self.db.get_calibration()
-        tasks = [
-            {
-                "id": "1",
-                "title": "Clarify hypothesis",
-                "summary": "State the main hypothesis and measurable outcome.",
-            },
-            {
-                "id": "2",
-                "title": "Design experiment",
-                "summary": "Sketch a minimal experiment or analysis plan.",
-            },
-            {
-                "id": "3",
-                "title": "Interpret expected results",
-                "summary": "Describe what success or failure would imply.",
-            },
-        ]
-        self.db.save_plan(tasks)
-
-        outputs: list[str] = []
-        context = f"# Task\n\n{task}\n\n# Calibration\n\n{calibration}"
-        for task_item in tasks:
-            result = await agent(
-                f"Execute research task: {task_item['title']}.",
-                f"{context}\n\nTask summary: {task_item['summary']}",
-                cwd=self.db.session_dir,
-            )
-            self.db.save_task_output(task_item["id"], result)
-            outputs.append(f"## Task {task_item['id']}: {task_item['title']}\n\n{result}")
-
-        return "\n\n".join(outputs)
-
-
-class WriteStage(Stage):
-    def __init__(self, db: ResearchDB) -> None:
-        super().__init__("write")
-        self.db = db
-
-    async def execute(self) -> str:
-        task = self.db.get_task()
-        calibration = self.db.get_calibration()
-        tasks = self.db.get_plan()
-        task_sections = []
-        for task_item in tasks:
-            output = self.db.get_task_output(task_item["id"])
-            task_sections.append(f"### {task_item['title']}\n\n{output}")
-
-        paper = await agent(
-            "Write a concise research report in Markdown from the task brief, calibration, and task outputs.",
-            f"# Task\n\n{task}\n\n# Calibration\n\n{calibration}\n\n# Task Outputs\n\n"
-            + "\n\n".join(task_sections),
-            cwd=self.db.session_dir,
-        )
-        self.db.save_paper(paper)
-        return paper

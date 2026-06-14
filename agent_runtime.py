@@ -29,6 +29,11 @@ async def agent(system_prompt: str, user_text: str, *, cwd: Path) -> str:
             sandbox=settings.codex_sandbox,
             timeout=settings.codex_timeout,
             inherit_proxy=settings.codex_inherit_proxy,
+            sandbox_provider=settings.codex_sandbox_provider,
+            docker_image=settings.codex_docker_image,
+            docker_bin=settings.codex_docker_bin,
+            docker_codex_bin=settings.codex_docker_codex_bin,
+            docker_gpus=settings.codex_docker_gpus,
         )
         return await codex.run(
             instruction=system_prompt,
@@ -52,5 +57,10 @@ def codex_status() -> dict[str, str | bool]:
         sandbox=settings.codex_sandbox,
         timeout=settings.codex_timeout,
         inherit_proxy=settings.codex_inherit_proxy,
+        sandbox_provider=settings.codex_sandbox_provider,
+        docker_image=settings.codex_docker_image,
+        docker_bin=settings.codex_docker_bin,
+        docker_codex_bin=settings.codex_docker_codex_bin,
+        docker_gpus=settings.codex_docker_gpus,
     )
     return codex.status()

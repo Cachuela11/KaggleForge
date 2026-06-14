@@ -84,16 +84,28 @@ class ResearchDB:
     def get_calibration(self) -> str:
         return self.read_text("calibration.md")
 
+    def save_strategy(self, text: str) -> None:
+        self.save_text("strategy.md", text)
+
+    def get_strategy(self) -> str:
+        return self.read_text("strategy.md")
+
     def save_competition_info(self, data: dict[str, Any]) -> None:
         self.save_json("competition.json", data)
 
     def get_competition_info(self) -> dict[str, Any]:
         return self.read_json("competition.json", {})
 
-    def save_plan(self, tasks: list[dict[str, str]]) -> None:
+    def save_plan_tree(self, tree: dict[str, Any]) -> None:
+        self.save_json("plan_tree.json", tree)
+
+    def get_plan_tree(self) -> dict[str, Any]:
+        return self.read_json("plan_tree.json", {})
+
+    def save_plan(self, tasks: list[dict[str, Any]]) -> None:
         self.save_json("plan_list.json", tasks)
 
-    def get_plan(self) -> list[dict[str, str]]:
+    def get_plan(self) -> list[dict[str, Any]]:
         return self.read_json("plan_list.json", [])
 
     def save_task_output(self, task_id: str, text: str) -> None:
@@ -103,6 +115,43 @@ class ResearchDB:
     def get_task_output(self, task_id: str) -> str:
         safe_id = task_id.replace("/", "_")
         return self.read_text(f"tasks/{safe_id}.md")
+
+    def save_verification(self, task_id: str, data: dict[str, Any]) -> None:
+        safe_id = task_id.replace("/", "_")
+        self.save_json(f"verifications/{safe_id}.json", data)
+
+    def get_verification(self, task_id: str) -> dict[str, Any]:
+        safe_id = task_id.replace("/", "_")
+        return self.read_json(f"verifications/{safe_id}.json", {})
+
+    def save_evaluation(self, data: dict[str, Any]) -> None:
+        self.save_json("evaluation.json", data)
+
+    def get_evaluation(self) -> dict[str, Any]:
+        return self.read_json("evaluation.json", {})
+
+    def artifacts_dir(self) -> Path:
+        path = self.session_dir / "artifacts"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def list_artifacts(self) -> list[dict[str, Any]]:
+        root = self.session_dir
+        artifacts = root / "artifacts"
+        if not artifacts.exists():
+            return []
+        items = []
+        for path in sorted(artifacts.rglob("*")):
+            if path.is_file():
+                items.append({
+                    "path": path.relative_to(root).as_posix(),
+                    "size_bytes": path.stat().st_size,
+                })
+        return items
+
+    def save_results_summary(self, data: dict[str, Any], markdown: str) -> None:
+        self.save_json("results_summary.json", data)
+        self.save_text("results_summary.md", markdown)
 
     def save_paper(self, text: str) -> None:
         self.save_text("paper.md", text)

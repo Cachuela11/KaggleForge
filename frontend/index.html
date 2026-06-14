@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MLforge</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <strong>MLforge</strong>
+      <span id="runtime-pill" class="pill muted">runtime</span>
+    </div>
+    <nav class="steps" id="steps">
+      <span data-step="intake">Intake</span>
+      <span data-step="strategy">Strategy</span>
+      <span data-step="decompose">Decompose</span>
+      <span data-step="execute">Execute</span>
+      <span data-step="verify">Verify</span>
+      <span data-step="evaluate">Evaluate</span>
+      <span data-step="report">Report</span>
+    </nav>
+  </header>
+
+  <main class="workspace">
+    <section class="panel log-panel">
+      <div class="panel-title">
+        <span>Run Log</span>
+        <span id="session-label"></span>
+      </div>
+      <div id="log" class="log"></div>
+    </section>
+
+    <aside class="panel side-panel">
+      <div class="panel-title">
+        <span>Session</span>
+        <button id="refresh-btn" type="button">Refresh</button>
+      </div>
+      <div id="summary" class="summary"></div>
+      <div class="tabs">
+        <button class="tab active" data-tab="docs">Docs</button>
+        <button class="tab" data-tab="plan">Plan</button>
+        <button class="tab" data-tab="tasks">Tasks</button>
+        <button class="tab" data-tab="artifacts">Artifacts</button>
+      </div>
+      <div id="tab-content" class="tab-content"></div>
+    </aside>
+  </main>
+
+  <form id="input-bar" class="input-bar">
+    <input id="source-input" type="text" placeholder="输入 Kaggle competition URL，例如 https://www.kaggle.com/competitions/titanic">
+    <button id="start-btn" type="submit">Start</button>
+  </form>
+
+  <dialog id="viewer">
+    <div class="viewer-head">
+      <strong id="viewer-title"></strong>
+      <button id="viewer-close" type="button">Close</button>
+    </div>
+    <article id="viewer-body"></article>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
