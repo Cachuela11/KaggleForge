@@ -155,3 +155,6 @@ class ResearchDB:
 
     def save_paper(self, text: str) -> None:
         self.save_text("paper.md", text)
+
+    def save_paper_polished(self, text: str) -> None:
+        self.save_text("paper_polished.md", text)

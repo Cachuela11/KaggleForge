@@ -14,6 +14,10 @@ const docs = [
   'strategy.md',
   'evaluation.json',
   'results_summary.md',
+  'report_context.md',
+  'paper.md',
+  'report_review.json',
+  'paper_polished.md',
 ];
 
 const stepMap = {

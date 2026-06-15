@@ -6,13 +6,14 @@ from typing import Any
 
 from db import ResearchDB
 from stage import describe_exception
-from stages import IntakeStage, ResearchStage
+from stages import IntakeStage, ReportStage, ResearchStage
 
 
 class Orchestrator:
     """Runs the MLforge pipeline.
 
-    For now, IntakeStage and ResearchStage are active. Report will be aligned next.
+    IntakeStage builds the task context, ResearchStage produces artifacts, and
+    ReportStage synthesizes the final technical report.
     """
 
     def __init__(self) -> None:
@@ -20,6 +21,7 @@ class Orchestrator:
         self.stages = [
             IntakeStage(self.db),
             ResearchStage(self.db),
+            ReportStage(self.db),
         ]
         self._subscribers: set[Any] = set()
         self._running = False

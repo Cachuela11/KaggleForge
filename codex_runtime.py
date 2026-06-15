@@ -212,29 +212,17 @@ class CodexCliRuntime:
         )
 
     def _build_env(self) -> dict[str, str]:
-        allowed = {
-            "PATH",
-            "PATHEXT",
-            "SYSTEMROOT",
-            "SystemRoot",
-            "COMSPEC",
-            "ComSpec",
-            "HOME",
-            "USER",
-            "LOGNAME",
-            "SHELL",
-            "USERPROFILE",
-            "TMP",
-            "TEMP",
-            "TMPDIR",
-            "CODEX_HOME",
-            "CODEX_API_KEY",
-            "OPENAI_API_KEY",
-            "CODEX_CA_CERTIFICATE",
-            "SSL_CERT_FILE",
-        }
-        if self.inherit_proxy:
-            allowed.update({
+        env = dict(os.environ)
+        helper_dir = self._find_windows_sandbox_helper_dir()
+        if helper_dir:
+            current_path = env.get("PATH") or env.get("Path") or ""
+            path_key = "Path" if "Path" in env else "PATH"
+            helper_path = str(helper_dir)
+            parts = [part for part in current_path.split(os.pathsep) if part]
+            if helper_path.lower() not in {part.lower() for part in parts}:
+                env[path_key] = os.pathsep.join([helper_path, *parts])
+        if not self.inherit_proxy:
+            for key in (
                 "HTTP_PROXY",
                 "HTTPS_PROXY",
                 "ALL_PROXY",
@@ -243,8 +231,42 @@ class CodexCliRuntime:
                 "https_proxy",
                 "all_proxy",
                 "no_proxy",
-            })
-        return {key: value for key, value in os.environ.items() if key in allowed and value}
+            ):
+                env.pop(key, None)
+        return env
+
+    @staticmethod
+    def _find_windows_sandbox_helper_dir() -> Path | None:
+        if os.name != "nt":
+            return None
+
+        candidates: list[Path] = []
+        user_profile = Path(os.environ.get("USERPROFILE", str(Path.home())))
+        vscode_extensions = user_profile / ".vscode" / "extensions"
+        if vscode_extensions.exists():
+            candidates.extend(
+                sorted(
+                    vscode_extensions.glob(
+                        "openai.chatgpt-*/bin/windows-x86_64/codex-windows-sandbox-setup.exe"
+                    ),
+                    key=lambda path: path.stat().st_mtime,
+                    reverse=True,
+                )
+            )
+            candidates.extend(
+                sorted(
+                    vscode_extensions.glob(
+                        "openai.chatgpt-*/bin/windows-x86_64/codex-resources/codex-windows-sandbox-setup.exe"
+                    ),
+                    key=lambda path: path.stat().st_mtime,
+                    reverse=True,
+                )
+            )
+
+        for helper in candidates:
+            if helper.exists():
+                return helper.parent
+        return None
 
     def _docker_env_names(self) -> list[str]:
         names = [
@@ -284,6 +306,8 @@ class CodexCliRuntime:
                     check=False,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=10,
                     env=self._build_env(),
                 )
@@ -323,6 +347,8 @@ class CodexCliRuntime:
                     check=False,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=30,
                     env=self._build_env(),
                 )

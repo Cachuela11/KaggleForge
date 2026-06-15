@@ -74,3 +74,15 @@ MLFORGE_CODEX_SANDBOX=workspace-write
 ```
 
 另外修复了 Windows + Uvicorn 下调用 Codex 子进程的问题：将 `asyncio.create_subprocess_exec` 改为 `asyncio.to_thread(subprocess.run, ...)`，避免前端运行时报 `NotImplementedError`。
+
+## 2026-06-15 进展
+
+今天主要补齐了最终 `report stage`：
+
+- 将主流程扩展为 `intake -> research -> report`。
+- `report stage` 会汇总 research 产物，生成 `report_context.json` 和 `report_context.md` 作为最终报告的事实包。
+- 新增 Writer / Reviewer / Polish 三步：先写 `paper.md`，再审查生成 `report_review.json`，最后润色输出 `paper_polished.md`。
+- 最终报告会追加 MLforge 执行记录，包含 session、任务数、验证通过数、artifact 数和关键文件清单。
+- 前端 Docs 列表新增 report 相关文件，方便在网页中查看最终报告和审查结果。
+
+Windows对Codex cli的适配太差了，windows sandbox有问题，codex启动本地powershell进程也有问题，只能在wsl的linux环境中启动，太麻烦了，目前准备换Mac电脑。
