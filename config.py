@@ -49,6 +49,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class Settings:
+    api_concurrency: int = _env_int("MLFORGE_API_CONCURRENCY", 3)
     team_max_delegations: int = _env_int("MLFORGE_TEAM_MAX_DELEGATIONS", 5)
     runtime: str = _env("MLFORGE_RUNTIME", "mock")
     codex_bin: str = _env("MLFORGE_CODEX_BIN", "codex")

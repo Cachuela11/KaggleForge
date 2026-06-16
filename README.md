@@ -86,3 +86,13 @@ MLFORGE_CODEX_SANDBOX=workspace-write
 - 前端 Docs 列表新增 report 相关文件，方便在网页中查看最终报告和审查结果。
 
 Windows对Codex cli的适配太差了，windows sandbox有问题，codex启动本地powershell进程也有问题，只能在wsl的linux环境中启动，太麻烦了，目前准备换Mac电脑。
+
+## 2026-06-16 进展
+
+今天补齐了 research stage 中 execute agent 的 DAG 并行能力：
+
+- 根据 `plan_list.json` 中的 `dependencies` 做拓扑分批。
+- 同一批无依赖冲突的 execute task 会并行运行。
+- 每个 task 使用独立 `workspaces/<task_id>/` 执行，避免并行写文件互相污染。
+- task 的 `workspace/artifacts/` 会同步回 session 的 `artifacts/<task_id>/`，供 verify、report 和前端查看。
+- 新增 `MLFORGE_API_CONCURRENCY` 控制最大并行数，默认 `3`。

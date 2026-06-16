@@ -109,19 +109,19 @@ class ResearchDB:
         return self.read_json("plan_list.json", [])
 
     def save_task_output(self, task_id: str, text: str) -> None:
-        safe_id = task_id.replace("/", "_")
+        safe_id = self.safe_id(task_id)
         self.save_text(f"tasks/{safe_id}.md", text)
 
     def get_task_output(self, task_id: str) -> str:
-        safe_id = task_id.replace("/", "_")
+        safe_id = self.safe_id(task_id)
         return self.read_text(f"tasks/{safe_id}.md")
 
     def save_verification(self, task_id: str, data: dict[str, Any]) -> None:
-        safe_id = task_id.replace("/", "_")
+        safe_id = self.safe_id(task_id)
         self.save_json(f"verifications/{safe_id}.json", data)
 
     def get_verification(self, task_id: str) -> dict[str, Any]:
-        safe_id = task_id.replace("/", "_")
+        safe_id = self.safe_id(task_id)
         return self.read_json(f"verifications/{safe_id}.json", {})
 
     def save_evaluation(self, data: dict[str, Any]) -> None:
@@ -134,6 +134,20 @@ class ResearchDB:
         path = self.session_dir / "artifacts"
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    def task_artifacts_dir(self, task_id: str) -> Path:
+        path = self.artifacts_dir() / self.safe_id(task_id)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def task_workspace_dir(self, task_id: str) -> Path:
+        path = self.session_dir / "workspaces" / self.safe_id(task_id)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @staticmethod
+    def safe_id(value: str) -> str:
+        return re.sub(r"[^a-zA-Z0-9._-]+", "_", str(value)).strip("._") or "task"
 
     def list_artifacts(self) -> list[dict[str, Any]]:
         root = self.session_dir

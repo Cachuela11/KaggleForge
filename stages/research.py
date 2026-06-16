@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import json
+import shutil
+from pathlib import Path
 from typing import Any
 
 from agent_runtime import agent
+from config import settings
 from db import ResearchDB
 from prompts import (
     DECOMPOSE_SYSTEM,
@@ -82,18 +87,79 @@ class ResearchStage(Stage):
 
     async def _execute_and_verify(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         completed: dict[str, dict[str, Any]] = {}
-        for task in self._topological_order(tasks):
+        semaphore = asyncio.Semaphore(max(1, settings.api_concurrency))
+        for batch_index, batch in enumerate(self._topological_batches(tasks), start=1):
+            self.emit(
+                phase="execute",
+                status="batch_running",
+                batch=batch_index,
+                task_ids=[task["id"] for task in batch],
+            )
+            dependency_snapshot = dict(completed)
+            results = await asyncio.gather(
+                *[
+                    self._execute_one_task(task, dependency_snapshot, semaphore)
+                    for task in batch
+                ],
+                return_exceptions=True,
+            )
+
+            for task, result in zip(batch, results):
+                task_id = task["id"]
+                if isinstance(result, Exception):
+                    task["status"] = "failed"
+                    self.db.save_plan(tasks)
+                    self.emit(
+                        phase="execute",
+                        status="failed",
+                        task_id=task_id,
+                        error=str(result),
+                    )
+                    raise result
+
+                completed[task_id] = result
+                task["status"] = "completed"
+                task["summary"] = result.get("summary", "")
+                self.emit(phase="execute", status="completed", task_id=task_id)
+
+            self.db.save_plan(tasks)
+            self.emit(
+                phase="execute",
+                status="batch_completed",
+                batch=batch_index,
+                task_ids=[task["id"] for task in batch],
+            )
+
+        return list(completed.values())
+
+    async def _execute_one_task(
+        self,
+        task: dict[str, Any],
+        completed: dict[str, dict[str, Any]],
+        semaphore: asyncio.Semaphore,
+    ) -> dict[str, Any]:
+        async with semaphore:
             task_id = task["id"]
+            workspace = self._prepare_task_workspace(task, completed)
             print(f"[research] execute task {task_id}: {task.get('title', '')}")
-            self.emit(phase="execute", status="running", task_id=task_id, task=task)
+            self.emit(
+                phase="execute",
+                status="running",
+                task_id=task_id,
+                task=task,
+                workspace=str(workspace),
+            )
+
             output = self.db.get_task_output(task_id)
             if not output:
                 output = await agent(
                     EXECUTE_SYSTEM,
-                    self._build_execute_user(task, completed),
-                    cwd=self.db.session_dir,
+                    self._build_workspace_execute_user(task, completed, workspace),
+                    cwd=workspace,
                 )
                 self.db.save_task_output(task_id, output)
+
+            self._sync_task_artifacts(task_id, workspace)
 
             verification = self.db.get_verification(task_id)
             if not verification:
@@ -108,15 +174,12 @@ class ResearchStage(Stage):
                     verification=verification,
                 )
 
-            completed[task_id] = {
+            return {
                 "task": task,
                 "output": output,
                 "verification": verification,
                 "summary": self._extract_summary(output),
             }
-            self.emit(phase="execute", status="completed", task_id=task_id)
-
-        return list(completed.values())
 
     async def _verify(self, task: dict[str, Any], output: str) -> dict[str, Any]:
         response = await agent(
@@ -221,6 +284,115 @@ class ResearchStage(Stage):
             ]
         )
 
+    def _build_workspace_execute_user(
+        self,
+        task: dict[str, Any],
+        completed: dict[str, dict[str, Any]],
+        workspace: Path,
+    ) -> str:
+        artifact = task.get("artifact") or f"artifacts/{task['id']}/result.md"
+        workspace_artifact = self._workspace_artifact_path(task)
+        contract = "\n".join(
+            [
+                "# Workspace contract",
+                f"- Current task workspace: `{workspace}`",
+                f"- Session directory: `{self.db.session_dir}`",
+                f"- Kaggle data directory: `{settings.dataset_dir}`",
+                "- Execute this task in the current workspace.",
+                "- Read copied files in this workspace first: `task.md`, `competition.json`, `strategy.md`, `plan_list.json`, `current_task.json`, and `dependencies.md`.",
+                "- Write durable outputs under `./artifacts/` in the current workspace.",
+                f"- MLforge will sync `./artifacts/` back to session `artifacts/{self.db.safe_id(task['id'])}/` after this agent call.",
+                f"- The decompose-requested artifact path is `{artifact}`.",
+                f"- In this workspace, prefer writing the primary artifact as `{workspace_artifact}`.",
+                "- Do not rely on conversation memory from other tasks. Use dependency summaries and persisted files only.",
+            ]
+        )
+        return contract + "\n\n" + self._build_execute_user(task, completed)
+
+    def _workspace_artifact_path(self, task: dict[str, Any]) -> str:
+        task_id = str(task["id"])
+        artifact = str(task.get("artifact") or f"artifacts/{task_id}/result.md").replace("\\", "/")
+        prefix = f"artifacts/{task_id}/"
+        safe_prefix = f"artifacts/{self.db.safe_id(task_id)}/"
+        if artifact.startswith(prefix):
+            return f"artifacts/{artifact[len(prefix):]}"
+        if artifact.startswith(safe_prefix):
+            return f"artifacts/{artifact[len(safe_prefix):]}"
+        if artifact.startswith("artifacts/"):
+            return artifact
+        return f"artifacts/{artifact}"
+
+    def _prepare_task_workspace(
+        self,
+        task: dict[str, Any],
+        completed: dict[str, dict[str, Any]],
+    ) -> Path:
+        task_id = task["id"]
+        workspace = self.db.task_workspace_dir(task_id)
+        (workspace / "artifacts").mkdir(parents=True, exist_ok=True)
+
+        for name in (
+            "source.md",
+            "task.md",
+            "competition.json",
+            "calibration.md",
+            "strategy.md",
+            "plan_list.json",
+            "plan_tree.json",
+            "results_summary.md",
+            "results_summary.json",
+        ):
+            src = self.db.session_dir / name
+            if src.exists() and src.is_file():
+                shutil.copy2(src, workspace / name)
+
+        current_task = dict(task)
+        current_task["workspace"] = str(workspace)
+        current_task["session_dir"] = str(self.db.session_dir)
+        current_task["dataset_dir"] = str(settings.dataset_dir)
+        (workspace / "current_task.json").write_text(
+            json.dumps(current_task, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        dependency_lines = []
+        for dep_id in task.get("dependencies", []):
+            dep = completed.get(dep_id)
+            if not dep:
+                continue
+            dependency_lines.extend(
+                [
+                    f"## Dependency {dep_id}",
+                    "",
+                    f"- Summary: {dep.get('summary') or '(no summary)'}",
+                    f"- Verification pass: {dep.get('verification', {}).get('pass')}",
+                    f"- Task output: `../../tasks/{self.db.safe_id(dep_id)}.md`",
+                    "",
+                ]
+            )
+        (workspace / "dependencies.md").write_text(
+            "\n".join(dependency_lines) or "(none)\n",
+            encoding="utf-8",
+        )
+        return workspace
+
+    def _sync_task_artifacts(self, task_id: str, workspace: Path) -> None:
+        source = workspace / "artifacts"
+        if not source.exists():
+            return
+        target = self.db.task_artifacts_dir(task_id)
+        safe_id = self.db.safe_id(task_id)
+        for path in sorted(source.rglob("*")):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(source)
+            parts = rel.parts
+            if parts and parts[0] in {safe_id, str(task_id)}:
+                rel = Path(*parts[1:]) if len(parts) > 1 else Path(path.name)
+            dest = target / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, dest)
+
     @staticmethod
     def _build_verify_user(task: dict[str, Any], output: str) -> str:
         return "\n\n".join(
@@ -312,6 +484,23 @@ class ResearchStage(Stage):
                 ordered.append(remaining.pop(task_id))
                 completed.add(task_id)
         return ordered
+
+    @staticmethod
+    def _topological_batches(tasks: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+        remaining = {task["id"]: task for task in tasks}
+        completed: set[str] = set()
+        batches: list[list[dict[str, Any]]] = []
+        while remaining:
+            ready = [
+                task_id for task_id, task in remaining.items()
+                if all(dep in completed for dep in task.get("dependencies", []))
+            ]
+            if not ready:
+                ready = list(remaining.keys())
+            batch = [remaining.pop(task_id) for task_id in ready]
+            batches.append(batch)
+            completed.update(ready)
+        return batches
 
     @staticmethod
     def _extract_summary(output: str) -> str:
