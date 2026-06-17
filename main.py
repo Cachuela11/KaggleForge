@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import sys
@@ -32,7 +32,7 @@ async def main() -> None:
         )
         result = await codex.run(
             instruction="You are a health-check agent. Return exactly one short line.",
-            user_text="Return exactly: MLFORGE_CODEX_OK",
+            user_text="Return exactly: KAGGLEFORGE_CODEX_OK",
             cwd=PROJECT_ROOT,
         )
         print(result)

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from typing import Any
@@ -9,7 +9,7 @@ from stage import Stage
 from utils import parse_json_fenced
 
 
-REPORT_WRITER_SYSTEM = """你是 MLforge 的 Report Writer agent。
+REPORT_WRITER_SYSTEM = """你是 KaggleForge 的 Report Writer agent。
 你的任务是根据 research stage 的真实产物，写一份中文技术总结报告。
 
 写作原则：
@@ -21,7 +21,7 @@ REPORT_WRITER_SYSTEM = """你是 MLforge 的 Report Writer agent。
 - 输出完整 Markdown，不要输出 JSON，不要写额外解释。"""
 
 
-REPORT_REVIEWER_SYSTEM = """你是 MLforge 的 Report Reviewer agent。
+REPORT_REVIEWER_SYSTEM = """你是 KaggleForge 的 Report Reviewer agent。
 你的任务是审查报告初稿是否忠实反映了 research stage 的产物。
 
 重点检查：
@@ -43,7 +43,7 @@ REPORT_REVIEWER_SYSTEM = """你是 MLforge 的 Report Reviewer agent。
 {"issues": [], "approved": true}"""
 
 
-REPORT_POLISH_SYSTEM = """你是 MLforge 的 Report Polish agent。
+REPORT_POLISH_SYSTEM = """你是 KaggleForge 的 Report Polish agent。
 你会收到一份中文技术报告初稿、审稿意见和事实锚点。
 
 你的任务：
@@ -261,7 +261,7 @@ class ReportStage(Stage):
         return "\n".join([
             "---",
             "",
-            "## 附录：MLforge 执行记录",
+            "## 附录：KaggleForge 执行记录",
             "",
             f"- Session ID: `{data.get('session_id')}`",
             f"- Source: {data.get('source')}",

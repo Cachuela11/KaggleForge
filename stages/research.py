@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import json
@@ -301,7 +301,7 @@ class ResearchStage(Stage):
                 "- Execute this task in the current workspace.",
                 "- Read copied files in this workspace first: `task.md`, `competition.json`, `strategy.md`, `plan_list.json`, `current_task.json`, and `dependencies.md`.",
                 "- Write durable outputs under `./artifacts/` in the current workspace.",
-                f"- MLforge will sync `./artifacts/` back to session `artifacts/{self.db.safe_id(task['id'])}/` after this agent call.",
+                f"- KaggleForge will sync `./artifacts/` back to session `artifacts/{self.db.safe_id(task['id'])}/` after this agent call.",
                 f"- The decompose-requested artifact path is `{artifact}`.",
                 f"- In this workspace, prefer writing the primary artifact as `{workspace_artifact}`.",
                 "- Do not rely on conversation memory from other tasks. Use dependency summaries and persisted files only.",

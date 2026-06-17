@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import json
@@ -12,7 +12,7 @@ from pathlib import Path
 class CodexCliRuntime:
     """Small non-interactive Codex CLI runtime.
 
-    MLforge owns the pipeline, while Codex executes each stage inside the
+    KaggleForge owns the pipeline, while Codex executes each stage inside the
     current session directory.
     """
 
@@ -49,7 +49,7 @@ class CodexCliRuntime:
         cwd.mkdir(parents=True, exist_ok=True)
         prompt = self._build_prompt(instruction, user_text)
 
-        output_path = cwd / f".mlforge_codex_{uuid.uuid4().hex}.md"
+        output_path = cwd / f".kaggleforge_codex_{uuid.uuid4().hex}.md"
         cmd = self._build_command(cwd=cwd, prompt=prompt, output_path=output_path)
         try:
             completed = await asyncio.to_thread(
@@ -94,7 +94,7 @@ class CodexCliRuntime:
         if not Path(codex_executable).exists() and not shutil.which(codex_executable):
             raise RuntimeError(
                 f"Codex executable not found: {self.codex_bin}. "
-                "Set MLFORGE_CODEX_BIN in .env to the absolute codex.EXE path."
+                "Set KAGGLEFORGE_CODEX_BIN in .env to the absolute codex.EXE path."
             )
         cmd = [
             codex_executable,
@@ -125,7 +125,7 @@ class CodexCliRuntime:
     def _build_docker_command(self, *, cwd: Path, prompt: str, output_path: Path) -> list[str]:
         if not self.docker_image:
             raise RuntimeError(
-                "MLFORGE_CODEX_SANDBOX_PROVIDER=docker requires MLFORGE_CODEX_DOCKER_IMAGE in .env. "
+                "KAGGLEFORGE_CODEX_SANDBOX_PROVIDER=docker requires KAGGLEFORGE_CODEX_DOCKER_IMAGE in .env. "
                 "The image must include an authenticated or API-key-configured Codex CLI."
             )
         docker_executable = shutil.which(self.docker_bin) or self.docker_bin
@@ -199,7 +199,7 @@ class CodexCliRuntime:
             [
                 "# System Instructions",
                 instruction.strip(),
-                "# MLforge Runtime",
+                "# KaggleForge Runtime",
                 "You are running through the Codex CLI.",
                 "Legacy in-process tool calling is not available.",
                 "Use the current working directory as the research session directory.",
@@ -339,7 +339,7 @@ class CodexCliRuntime:
         if not docker_path:
             error = f"Docker binary not found: {self.docker_bin}"
         elif not self.docker_image:
-            error = "MLFORGE_CODEX_DOCKER_IMAGE is not set"
+            error = "KAGGLEFORGE_CODEX_DOCKER_IMAGE is not set"
         else:
             try:
                 result = subprocess.run(

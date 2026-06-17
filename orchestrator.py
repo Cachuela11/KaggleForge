@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import queue
@@ -10,7 +10,7 @@ from stages import IntakeStage, ReportStage, ResearchStage
 
 
 class Orchestrator:
-    """Runs the MLforge pipeline.
+    """Runs the KaggleForge pipeline.
 
     IntakeStage builds the task context, ResearchStage produces artifacts, and
     ReportStage synthesizes the final technical report.

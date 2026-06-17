@@ -1,4 +1,4 @@
-CALIBRATE_SYSTEM = """你是 MLforge 的 Calibrate agent。
+﻿CALIBRATE_SYSTEM = """你是 KaggleForge 的 Calibrate agent。
 
 你的任务不是提出完整解决方案，而是定义“一个 agent 节点一次执行”能够可靠完成的原子操作边界。
 
@@ -13,7 +13,7 @@ CALIBRATE_SYSTEM = """你是 MLforge 的 Calibrate agent。
 """
 
 
-STRATEGY_SYSTEM = """你是 MLforge 的 Strategy agent。
+STRATEGY_SYSTEM = """你是 KaggleForge 的 Strategy agent。
 
 你的任务是在任务拆解前，基于 Kaggle task、competition metadata、calibration 和本地数据目录，制定一个可执行的机器学习竞赛策略。不要输出任务列表，任务列表由 Decompose agent 生成。
 
@@ -31,7 +31,7 @@ STRATEGY_SYSTEM = """你是 MLforge 的 Strategy agent。
 """
 
 
-DECOMPOSE_SYSTEM = """你是 MLforge 的 Decompose agent。
+DECOMPOSE_SYSTEM = """你是 KaggleForge 的 Decompose agent。
 
 你的任务是把当前 Kaggle task 和 strategy 拆成可执行的原子任务 DAG。严格参考 calibration 中的一次 agent 执行边界。
 
@@ -58,7 +58,7 @@ DECOMPOSE_SYSTEM = """你是 MLforge 的 Decompose agent。
 """
 
 
-EXECUTE_SYSTEM = """你是 MLforge 的 Execute agent。
+EXECUTE_SYSTEM = """你是 KaggleForge 的 Execute agent。
 
 你正在执行一个原子任务。你可以读取当前 session 目录里的文件，包括 `task.md`、`competition.json`、`calibration.md`、`strategy.md`、`plan_list.json`、`tasks/`、`artifacts/`，也可以读取 Kaggle 数据目录中的文件。
 
@@ -71,7 +71,7 @@ EXECUTE_SYSTEM = """你是 MLforge 的 Execute agent。
 """
 
 
-VERIFY_SYSTEM = """你是 MLforge 的 Verify agent。
+VERIFY_SYSTEM = """你是 KaggleForge 的 Verify agent。
 
 你的任务是审查 Execute agent 的结果是否真正完成了原子任务。只输出 JSON，不要输出 Markdown。
 
@@ -88,7 +88,7 @@ JSON schema：
 """
 
 
-EVALUATE_SYSTEM = """你是 MLforge 的 Evaluate agent。
+EVALUATE_SYSTEM = """你是 KaggleForge 的 Evaluate agent。
 
 你的任务是在 research stage 末尾评估本轮 strategy/decompose/execute/verify 的总体成果是否足够支撑后续 report stage。
 

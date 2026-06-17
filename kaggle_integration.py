@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import csv
 import os
@@ -164,7 +164,7 @@ def build_kaggle_task(info: dict) -> str:
 
 
 def _configure_kaggle_credentials() -> None:
-    """Expose MLforge .env credentials in the format Kaggle SDK expects."""
+    """Expose KaggleForge .env credentials in the format Kaggle SDK expects."""
 
     if settings.kaggle_api_token:
         os.environ.setdefault("KAGGLE_API_TOKEN", settings.kaggle_api_token)
@@ -186,7 +186,7 @@ def _call_kaggle(operation, label: str, attempts: int = 3):
                     f"{label} failed with 403 Forbidden. "
                     "Your Kaggle account can see this competition, but cannot download its files yet. "
                     "Open the competition page in your browser, join the competition, accept the rules, "
-                    "then run MLforge again."
+                    "then run KaggleForge again."
                 ) from exc
             if attempt == attempts:
                 break

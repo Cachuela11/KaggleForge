@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import json
@@ -21,7 +21,7 @@ class StartRequest(BaseModel):
     input: str
 
 
-app = FastAPI(title="MLforge", version="0.1.0")
+app = FastAPI(title="KaggleForge", version="0.1.0")
 orchestrator = Orchestrator()
 pipeline_task: asyncio.Task | None = None
 runtime_status_cache: dict[str, Any] = {"at": 0.0, "data": None}

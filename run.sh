@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -9,24 +9,24 @@ HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8000}"
 
 if [ ! -d "$VENV_DIR" ]; then
-  echo "[MLforge] creating virtual environment: $VENV_DIR"
+  echo "[KaggleForge] creating virtual environment: $VENV_DIR"
   "$PYTHON_BIN" -m venv "$VENV_DIR"
 fi
 
 PY="$VENV_DIR/bin/python"
 if [ ! -x "$PY" ]; then
-  echo "[MLforge] virtual environment python not found: $PY" >&2
+  echo "[KaggleForge] virtual environment python not found: $PY" >&2
   exit 1
 fi
 
 if [ -f requirements.txt ]; then
-  echo "[MLforge] installing requirements"
+  echo "[KaggleForge] installing requirements"
   "$PY" -m pip install -r requirements.txt
 fi
 
 case "${1:-server}" in
   server)
-    echo "[MLforge] starting server at http://$HOST:$PORT"
+    echo "[KaggleForge] starting server at http://$HOST:$PORT"
     exec "$PY" -m uvicorn server:app --host "$HOST" --port "$PORT"
     ;;
   cli)
