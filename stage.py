@@ -29,6 +29,11 @@ class Stage:
         self.error = ""
         self.event_sink: Callable[[dict[str, Any]], None] | None = None
 
+    def reset(self) -> None:
+        self.state = StageState.IDLE
+        self.output = ""
+        self.error = ""
+
     async def run(self) -> str:
         self.state = StageState.RUNNING
         self.error = ""

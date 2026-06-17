@@ -4,6 +4,44 @@ const state = {
   plan: [],
   tree: null,
   artifacts: [],
+  documents: {},
+  stages: {},
+  agents: {},
+};
+
+const stageOrder = ['intake', 'research', 'report'];
+const agentOrder = ['calibrate', 'strategy', 'decompose', 'execute', 'verify', 'evaluate', 'collect', 'writer', 'reviewer', 'polish'];
+
+const stageLabels = {
+  intake: 'Intake',
+  research: 'Research',
+  report: 'Report',
+};
+
+const agentLabels = {
+  calibrate: 'Calibrate',
+  strategy: 'Strategy',
+  decompose: 'Decompose',
+  execute: 'Execute',
+  verify: 'Verify',
+  evaluate: 'Evaluate',
+  collect: 'Collect',
+  writer: 'Writer',
+  reviewer: 'Reviewer',
+  polish: 'Polish',
+};
+
+const agentStage = {
+  calibrate: 'intake',
+  strategy: 'research',
+  decompose: 'research',
+  execute: 'research',
+  verify: 'research',
+  evaluate: 'research',
+  collect: 'report',
+  writer: 'report',
+  reviewer: 'report',
+  polish: 'report',
 };
 
 const docs = [
@@ -22,6 +60,7 @@ const docs = [
 
 const stepMap = {
   intake: 'intake',
+  calibrate: 'intake',
   strategy: 'strategy',
   decompose: 'decompose',
   execute: 'execute',
@@ -77,6 +116,168 @@ function stripLarge(event) {
   return clone;
 }
 
+function resetRunState() {
+  state.stages = Object.fromEntries(stageOrder.map((name) => [
+    name,
+    { name, state: 'pending', detail: '' },
+  ]));
+  state.agents = Object.fromEntries(agentOrder.map((name) => [
+    name,
+    { name, state: 'pending', detail: '', taskId: '' },
+  ]));
+  document.querySelectorAll('[data-step]').forEach((node) => {
+    node.classList.remove('active', 'done', 'failed');
+  });
+  renderRunState();
+}
+
+function clearSessionView() {
+  state.status = null;
+  state.plan = [];
+  state.tree = null;
+  state.artifacts = [];
+  state.documents = {};
+  el('session-label').textContent = '';
+  el('summary').textContent = 'Starting new session.';
+  renderTab();
+}
+
+function syncStageStatus(stages) {
+  if (!Array.isArray(stages)) return;
+  for (const stage of stages) {
+    if (!stage.name || !state.stages[stage.name]) continue;
+    state.stages[stage.name] = {
+      ...state.stages[stage.name],
+      state: stage.state || state.stages[stage.name].state,
+      detail: stage.error || '',
+    };
+  }
+  renderRunState();
+}
+
+function updateRunState(event) {
+  if (event.type === 'pipeline.started') {
+    resetRunState();
+    return;
+  }
+
+  if (event.type === 'pipeline.completed') {
+    for (const name of stageOrder) {
+      if (state.stages[name]?.state !== 'failed') {
+        state.stages[name].state = 'completed';
+      }
+    }
+    renderRunState();
+    return;
+  }
+
+  if (event.type === 'pipeline.failed') {
+    const active = stageOrder.find((name) => state.stages[name]?.state === 'running');
+    if (active) {
+      state.stages[active].state = 'failed';
+      state.stages[active].detail = event.error || '';
+    }
+    renderRunState();
+    return;
+  }
+
+  if (event.stage && !event.phase && state.stages[event.stage]) {
+    state.stages[event.stage] = {
+      ...state.stages[event.stage],
+      state: normalizeStatus(event.status),
+      detail: event.error || '',
+    };
+  }
+
+  if (event.phase) {
+    const agentName = event.phase;
+    if (agentName === 'kaggle') {
+      renderRunState();
+      return;
+    }
+    if (!state.agents[agentName]) {
+      state.agents[agentName] = { name: agentName, state: 'pending', detail: '', taskId: '' };
+      if (!agentOrder.includes(agentName)) agentOrder.push(agentName);
+    }
+    state.agents[agentName] = {
+      ...state.agents[agentName],
+      state: normalizeStatus(event.status),
+      detail: agentDetail(event),
+      taskId: event.task_id || state.agents[agentName].taskId || '',
+    };
+
+    const parentStage = agentStage[agentName] || event.stage;
+    if (parentStage && state.stages[parentStage] && state.stages[parentStage].state === 'pending') {
+      state.stages[parentStage].state = 'running';
+    }
+  }
+
+  renderRunState();
+}
+
+function normalizeStatus(status) {
+  if (status === 'batch_running' || status === 'retrying' || status === 'redecomposing') return 'running';
+  if (status === 'batch_completed' || status === 'redecomposed') return 'completed';
+  return status || 'pending';
+}
+
+function agentDetail(event) {
+  const parts = [];
+  if (event.status === 'batch_running' || event.status === 'batch_completed') {
+    parts.push(`batch ${event.batch}`);
+  }
+  if (event.task_id) parts.push(`task ${event.task_id}`);
+  if (event.task_ids?.length) parts.push(`tasks ${event.task_ids.join(', ')}`);
+  if (event.attempt) {
+    const max = event.max_attempts ? `/${event.max_attempts}` : '';
+    parts.push(`attempt ${event.attempt}${max}`);
+  }
+  if (event.status === 'redecomposing') parts.push('redecompose');
+  if (event.child_ids?.length) parts.push(`children ${event.child_ids.join(', ')}`);
+  if (event.error) parts.push(event.error);
+  return parts.join(' / ');
+}
+
+function renderRunState() {
+  renderStatusList(el('stage-status-list'), stageOrder, state.stages, stageLabels);
+  renderStatusList(el('agent-status-list'), agentOrder, state.agents, agentLabels);
+}
+
+function renderStatusList(container, order, source, labels) {
+  if (!container) return;
+  container.textContent = '';
+  for (const name of order) {
+    const item = source[name] || { name, state: 'pending', detail: '' };
+    const normalized = normalizeStatus(item.state);
+    const row = document.createElement('div');
+    row.className = `status-node ${normalized}`;
+
+    const dot = document.createElement('span');
+    dot.className = 'status-dot';
+    row.appendChild(dot);
+
+    const body = document.createElement('div');
+    body.className = 'status-body';
+
+    const title = document.createElement('div');
+    title.className = 'status-name';
+    title.textContent = labels[name] || name;
+    body.appendChild(title);
+
+    const detail = document.createElement('small');
+    detail.textContent = item.detail || normalized;
+    body.appendChild(detail);
+    row.appendChild(body);
+
+    const badge = document.createElement('span');
+    badge.className = 'status-badge';
+    badge.textContent = normalized;
+    row.appendChild(badge);
+
+    container.appendChild(row);
+  }
+}
+
 function updateSteps(event) {
   const key = event.phase || event.stage;
   const step = stepMap[key];
@@ -94,9 +295,9 @@ async function refreshStatus() {
     const runtime = await api('/api/runtime/status');
     const pill = el('runtime-pill');
     pill.textContent = runtime.connected
-      ? `${runtime.sandbox_provider || 'local'}: connected`
-      : `runtime: ${runtime.error || 'offline'}`;
-    pill.className = `pill ${runtime.connected ? 'ok' : 'bad'}`;
+      ? `${runtime.runtime || 'runtime'} / ${runtime.sandbox_provider || 'local'}`
+      : `${runtime.runtime || 'runtime'}: ${runtime.error || 'offline'}`;
+    pill.className = `pill ${runtime.connected && runtime.runtime !== 'mock' ? 'ok' : 'bad'}`;
   } catch {
     el('runtime-pill').textContent = 'runtime: offline';
     el('runtime-pill').className = 'pill bad';
@@ -104,6 +305,7 @@ async function refreshStatus() {
 
   try {
     state.status = await api('/api/pipeline/status');
+    syncStageStatus(state.status.stages);
     renderSummary();
   } catch {
     // no active server state yet
@@ -112,6 +314,12 @@ async function refreshStatus() {
 
 async function refreshSession() {
   await refreshStatus();
+  try {
+    const documents = await api('/api/session/documents');
+    state.documents = Object.fromEntries(documents.map((doc) => [doc.name, doc]));
+  } catch {
+    state.documents = {};
+  }
   try {
     state.plan = await api('/api/session/plan/list');
   } catch {
@@ -139,7 +347,7 @@ function renderSummary() {
   }
   el('session-label').textContent = s.session_id;
   const stageText = (s.stages || []).map((stage) => `${stage.name}: ${stage.state}`).join(' | ');
-  box.textContent = `${s.running ? 'Running' : 'Idle'} · ${s.session_id} · ${stageText}`;
+  box.textContent = `${s.running ? 'Running' : 'Idle'} / ${s.session_id} / ${stageText}`;
 }
 
 function renderTab() {
@@ -153,7 +361,9 @@ function renderTab() {
 
 function renderDocs(box) {
   for (const name of docs) {
-    const item = itemNode(name, 'Open document');
+    const doc = state.documents[name] || { exists: false, size_bytes: 0 };
+    const subtitle = doc.exists ? `${doc.size_bytes} bytes` : 'Not generated yet';
+    const item = itemNode(name, subtitle, { exists: doc.exists });
     item.onclick = () => openDocument(name);
     box.appendChild(item);
   }
@@ -165,7 +375,10 @@ function renderPlan(box) {
     return;
   }
   for (const task of state.plan) {
-    const item = itemNode(`[${task.id}] ${task.title || 'Task'}`, task.description || '');
+    const item = itemNode(`[${task.id}] ${task.title || 'Task'}`, task.description || '', {
+      exists: task.status === 'completed',
+      failed: task.status === 'failed',
+    });
     item.onclick = () => openText(`Task ${task.id}`, 'json', JSON.stringify(task, null, 2));
     box.appendChild(item);
   }
@@ -177,7 +390,10 @@ function renderTasks(box) {
     return;
   }
   for (const task of state.plan) {
-    const item = itemNode(`[${task.id}] ${task.title || 'Task'}`, task.artifact || '');
+    const item = itemNode(`[${task.id}] ${task.title || 'Task'}`, task.artifact || '', {
+      exists: task.status === 'completed',
+      failed: task.status === 'failed',
+    });
     item.onclick = () => openTask(task.id);
     box.appendChild(item);
   }
@@ -189,16 +405,29 @@ function renderArtifacts(box) {
     return;
   }
   for (const artifact of state.artifacts) {
-    const item = itemNode(artifact.path, `${artifact.size_bytes} bytes`);
+    const item = itemNode(artifact.path, `${artifact.size_bytes} bytes`, { exists: true });
     item.onclick = () => window.open(`/api/session/artifacts/${artifact.path.replace(/^artifacts\//, '')}`, '_blank');
     box.appendChild(item);
   }
 }
 
-function itemNode(title, subtitle) {
+function itemNode(title, subtitle, options = {}) {
   const item = document.createElement('div');
-  item.className = 'item';
-  item.textContent = title;
+  item.className = `item ${options.exists ? 'exists' : ''} ${options.failed ? 'failed' : ''}`;
+
+  const head = document.createElement('div');
+  head.className = 'item-head';
+
+  const dot = document.createElement('span');
+  dot.className = 'item-dot';
+  head.appendChild(dot);
+
+  const label = document.createElement('span');
+  label.className = 'item-label';
+  label.textContent = title;
+  head.appendChild(label);
+  item.appendChild(head);
+
   const small = document.createElement('small');
   small.textContent = subtitle || '';
   item.appendChild(small);
@@ -235,6 +464,7 @@ function connectSSE() {
     const data = JSON.parse(event.data);
     appendLog(data);
     updateSteps(data);
+    updateRunState(data);
     if (data.status === 'completed' || data.type === 'pipeline.completed') {
       await refreshSession();
     }
@@ -252,6 +482,9 @@ async function startPipeline(event) {
   const input = el('source-input').value.trim();
   if (!input) return;
   el('start-btn').disabled = true;
+  el('log').textContent = '';
+  resetRunState();
+  clearSessionView();
   try {
     await api('/api/pipeline/start', {
       method: 'POST',
@@ -281,6 +514,7 @@ el('refresh-btn').addEventListener('click', refreshSession);
 el('viewer-close').addEventListener('click', () => el('viewer').close());
 
 initTabs();
+resetRunState();
 connectSSE();
 refreshSession();
 setInterval(refreshStatus, 15000);

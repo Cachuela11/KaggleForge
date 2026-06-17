@@ -4,6 +4,7 @@ import asyncio
 import queue
 from typing import Any
 
+from config import settings
 from db import ResearchDB
 from stage import describe_exception
 from stages import IntakeStage, ReportStage, ResearchStage
@@ -34,6 +35,8 @@ class Orchestrator:
             raise RuntimeError("Pipeline is already running.")
         self._running = True
         self._source = source
+        for stage in self.stages:
+            stage.reset()
         self.db.create_session(source)
         self.db.save_source(source)
         self.broadcast({
@@ -41,6 +44,7 @@ class Orchestrator:
             "source": source,
             "session_id": self.db.research_id,
             "session_dir": str(self.db.session_dir),
+            "runtime": settings.runtime,
         })
 
         try:

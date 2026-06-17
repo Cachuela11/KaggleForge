@@ -109,6 +109,35 @@ async def events(request: Request):
     )
 
 
+@app.get("/api/session/documents")
+async def list_documents() -> list[dict[str, Any]]:
+    db = _session_required()
+    names = [
+        "source.md",
+        "competition.json",
+        "task.md",
+        "calibration.md",
+        "strategy.md",
+        "evaluation.json",
+        "results_summary.md",
+        "report_context.md",
+        "paper.md",
+        "report_review.json",
+        "paper_polished.md",
+    ]
+    items = []
+    for name in names:
+        path = _resolve_session_path(name)
+        exists = path.exists() and path.is_file()
+        items.append({
+            "name": name,
+            "exists": exists,
+            "size_bytes": path.stat().st_size if exists else 0,
+            "path": path.relative_to(db.session_dir).as_posix() if exists else name,
+        })
+    return items
+
+
 @app.get("/api/session/documents/{name:path}")
 async def get_document(name: str) -> dict[str, str]:
     path = _resolve_session_path(name)

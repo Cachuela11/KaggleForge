@@ -20,16 +20,22 @@ class IntakeStage(Stage):
         self.db = db
 
     async def execute(self) -> str:
+        self.emit(phase="kaggle", status="running")
         task = await self._load_kaggle_task()
+        self.emit(phase="kaggle", status="completed")
         calibration = self.db.get_calibration()
 
         if not calibration:
+            self.emit(phase="calibrate", status="running")
             calibration = await agent(
                 CALIBRATE_SYSTEM,
                 self._build_calibrate_user(task),
                 cwd=self.db.session_dir,
             )
             self.db.save_calibration(calibration)
+            self.emit(phase="calibrate", status="completed")
+        else:
+            self.emit(phase="calibrate", status="completed", cached=True)
 
         return calibration
 

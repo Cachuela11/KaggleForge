@@ -165,7 +165,7 @@ input {
   min-height: 0;
   overflow: hidden;
   display: grid;
-  grid-template-columns: minmax(0, 1.48fr) minmax(350px, 0.82fr);
+  grid-template-columns: minmax(0, 1.42fr) minmax(390px, 0.88fr);
   gap: 14px;
   padding: 14px 16px;
 }
@@ -295,6 +295,132 @@ input {
   background: rgba(0, 0, 0, 0.2);
 }
 
+.status-board {
+  flex: 0 0 min(340px, 46vh);
+  display: grid;
+  grid-template-columns: minmax(250px, 0.7fr) minmax(340px, 1.3fr);
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+}
+
+.status-column {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.status-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 8px;
+  color: var(--text);
+  font-weight: 660;
+}
+
+.status-heading small {
+  color: var(--muted-2);
+  font-weight: 500;
+}
+
+.status-list {
+  min-height: 0;
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+  padding-right: 3px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.status-node {
+  min-width: 0;
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.085);
+  border-radius: 8px;
+  padding: 9px 11px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent),
+    rgba(0, 0, 0, 0.2);
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--muted-2);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.035);
+}
+
+.status-body {
+  min-width: 0;
+}
+
+.status-name {
+  color: var(--text);
+  font-weight: 620;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-body small {
+  display: block;
+  color: var(--muted-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-badge {
+  max-width: 104px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-node.running {
+  border-color: rgba(185, 215, 242, 0.24);
+  background: rgba(185, 215, 242, 0.055);
+}
+
+.status-node.running .status-dot {
+  background: var(--blue);
+  box-shadow: 0 0 0 3px rgba(185, 215, 242, 0.09), 0 0 22px rgba(185, 215, 242, 0.22);
+}
+
+.status-node.completed {
+  border-color: rgba(158, 216, 199, 0.22);
+  background: rgba(158, 216, 199, 0.045);
+}
+
+.status-node.completed .status-dot {
+  background: var(--accent);
+}
+
+.status-node.failed {
+  border-color: rgba(240, 154, 163, 0.3);
+  background: rgba(240, 154, 163, 0.055);
+}
+
+.status-node.failed .status-dot {
+  background: var(--bad);
+}
+
 .tabs {
   flex: 0 0 auto;
   display: grid;
@@ -334,8 +460,21 @@ input {
   padding: 11px 12px;
   margin-bottom: 8px;
   cursor: pointer;
-  transition: border-color 160ms ease, background 160ms ease;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
   overflow-wrap: anywhere;
+}
+
+.item.exists {
+  border-color: rgba(158, 216, 199, 0.26);
+  background:
+    linear-gradient(180deg, rgba(158, 216, 199, 0.075), transparent),
+    rgba(158, 216, 199, 0.035);
+  box-shadow: inset 0 1px 0 rgba(185, 234, 220, 0.08);
+}
+
+.item.failed {
+  border-color: rgba(240, 154, 163, 0.32);
+  background: rgba(240, 154, 163, 0.055);
 }
 
 .item:hover {
@@ -349,6 +488,40 @@ input {
   color: var(--muted-2);
   display: block;
   margin-top: 5px;
+  padding-left: 20px;
+}
+
+.item-head {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.item-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--muted-2);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.035);
+}
+
+.item.exists .item-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(158, 216, 199, 0.09), 0 0 18px rgba(158, 216, 199, 0.2);
+}
+
+.item.failed .item-dot {
+  background: var(--bad);
+  box-shadow: 0 0 0 3px rgba(240, 154, 163, 0.08);
+}
+
+.item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .input-bar {
@@ -470,6 +643,10 @@ dialog::backdrop {
   .workspace {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .status-board {
+    grid-template-columns: 1fr;
   }
 
   .input-bar {

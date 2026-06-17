@@ -63,4 +63,6 @@ def codex_status() -> dict[str, str | bool]:
         docker_codex_bin=settings.codex_docker_codex_bin,
         docker_gpus=settings.codex_docker_gpus,
     )
-    return codex.status()
+    status = codex.status()
+    status["runtime"] = settings.runtime
+    return status
