@@ -50,6 +50,7 @@ def _env_bool(name: str, default: bool) -> bool:
 @dataclass(frozen=True)
 class Settings:
     api_concurrency: int = _env_int("KAGGLEFORGE_API_CONCURRENCY", 3)
+    task_max_attempts: int = _env_int("KAGGLEFORGE_TASK_MAX_ATTEMPTS", 2)
     team_max_delegations: int = _env_int("KAGGLEFORGE_TEAM_MAX_DELEGATIONS", 5)
     runtime: str = _env("KAGGLEFORGE_RUNTIME", "mock")
     codex_bin: str = _env("KAGGLEFORGE_CODEX_BIN", "codex")

@@ -118,7 +118,8 @@ class ResearchStage(Stage):
                     raise result
 
                 completed[task_id] = result
-                task["status"] = "completed"
+                passed = bool(result.get("verification", {}).get("pass"))
+                task["status"] = "completed" if passed else "failed"
                 task["summary"] = result.get("summary", "")
                 self.emit(phase="execute", status="completed", task_id=task_id)
 
@@ -151,34 +152,91 @@ class ResearchStage(Stage):
             )
 
             output = self.db.get_task_output(task_id)
-            if not output:
-                output = await agent(
-                    EXECUTE_SYSTEM,
-                    self._build_workspace_execute_user(task, completed, workspace),
-                    cwd=workspace,
-                )
-                self.db.save_task_output(task_id, output)
-
-            self._sync_task_artifacts(task_id, workspace)
-
             verification = self.db.get_verification(task_id)
-            if not verification:
-                print(f"[research] verify task {task_id}")
-                self.emit(phase="verify", status="running", task_id=task_id, task=task)
-                verification = await self._verify(task, output)
-                self.db.save_verification(task_id, verification)
-                self.emit(
-                    phase="verify",
-                    status="completed",
-                    task_id=task_id,
-                    verification=verification,
+            max_attempts = max(1, settings.task_max_attempts)
+            previous_output = output
+            retry_review = str(verification.get("review", "")) if verification else ""
+            final_output = output
+            final_verification = verification
+
+            for attempt in range(1, max_attempts + 1):
+                should_execute = not final_output or (
+                    attempt > 1 and not final_verification.get("pass", False)
                 )
+                if should_execute:
+                    self.emit(
+                        phase="execute",
+                        status="running",
+                        task_id=task_id,
+                        task=task,
+                        attempt=attempt,
+                        max_attempts=max_attempts,
+                        workspace=str(workspace),
+                    )
+                    final_output = await agent(
+                        EXECUTE_SYSTEM,
+                        self._build_workspace_execute_user(
+                            task,
+                            completed,
+                            workspace,
+                            attempt=attempt,
+                            previous_output=previous_output,
+                            retry_review=retry_review,
+                        ),
+                        cwd=workspace,
+                    )
+                    self.db.save_task_output(task_id, final_output)
+                    self.db.save_text(
+                        f"tasks/{self.db.safe_id(task_id)}.attempt_{attempt}.md",
+                        final_output,
+                    )
+
+                self._sync_task_artifacts(task_id, workspace)
+
+                if not final_verification or should_execute:
+                    print(f"[research] verify task {task_id} attempt {attempt}")
+                    self.emit(
+                        phase="verify",
+                        status="running",
+                        task_id=task_id,
+                        task=task,
+                        attempt=attempt,
+                        max_attempts=max_attempts,
+                    )
+                    final_verification = await self._verify(task, final_output)
+                    self.db.save_verification(task_id, final_verification)
+                    self.db.save_json(
+                        f"verifications/{self.db.safe_id(task_id)}.attempt_{attempt}.json",
+                        final_verification,
+                    )
+                    self.emit(
+                        phase="verify",
+                        status="completed",
+                        task_id=task_id,
+                        verification=final_verification,
+                        attempt=attempt,
+                    )
+
+                if final_verification.get("pass"):
+                    break
+
+                previous_output = final_output
+                retry_review = str(final_verification.get("review", ""))
+                if attempt < max_attempts:
+                    self.emit(
+                        phase="execute",
+                        status="retrying",
+                        task_id=task_id,
+                        attempt=attempt + 1,
+                        max_attempts=max_attempts,
+                        review=retry_review,
+                    )
 
             return {
                 "task": task,
-                "output": output,
-                "verification": verification,
-                "summary": self._extract_summary(output),
+                "output": final_output,
+                "verification": final_verification,
+                "summary": self._extract_summary(final_output),
             }
 
     async def _verify(self, task: dict[str, Any], output: str) -> dict[str, Any]:
@@ -289,25 +347,52 @@ class ResearchStage(Stage):
         task: dict[str, Any],
         completed: dict[str, dict[str, Any]],
         workspace: Path,
+        *,
+        attempt: int = 1,
+        previous_output: str = "",
+        retry_review: str = "",
     ) -> str:
         artifact = task.get("artifact") or f"artifacts/{task['id']}/result.md"
         workspace_artifact = self._workspace_artifact_path(task)
-        contract = "\n".join(
-            [
-                "# Workspace contract",
-                f"- Current task workspace: `{workspace}`",
-                f"- Session directory: `{self.db.session_dir}`",
-                f"- Kaggle data directory: `{settings.dataset_dir}`",
-                "- Execute this task in the current workspace.",
-                "- Read copied files in this workspace first: `task.md`, `competition.json`, `strategy.md`, `plan_list.json`, `current_task.json`, and `dependencies.md`.",
-                "- Write durable outputs under `./artifacts/` in the current workspace.",
-                f"- KaggleForge will sync `./artifacts/` back to session `artifacts/{self.db.safe_id(task['id'])}/` after this agent call.",
-                f"- The decompose-requested artifact path is `{artifact}`.",
-                f"- In this workspace, prefer writing the primary artifact as `{workspace_artifact}`.",
-                "- Do not rely on conversation memory from other tasks. Use dependency summaries and persisted files only.",
-            ]
-        )
-        return contract + "\n\n" + self._build_execute_user(task, completed)
+        parts = [
+            "# Workspace contract",
+            "\n".join(
+                [
+                    f"- Current task workspace: `{workspace}`",
+                    f"- Session directory: `{self.db.session_dir}`",
+                    f"- Kaggle data directory: `{settings.dataset_dir}`",
+                    f"- Attempt: {attempt}/{max(1, settings.task_max_attempts)}",
+                    "- Execute this task in the current workspace.",
+                    "- Read copied files in this workspace first: `task.md`, `competition.json`, `strategy.md`, `plan_list.json`, `current_task.json`, and `dependencies.md`.",
+                    "- Write durable outputs under `./artifacts/` in the current workspace.",
+                    f"- KaggleForge will sync `./artifacts/` back to session `artifacts/{self.db.safe_id(task['id'])}/` after this agent call.",
+                    f"- The decompose-requested artifact path is `{artifact}`.",
+                    f"- In this workspace, prefer writing the primary artifact as `{workspace_artifact}`.",
+                    "- Do not rely on conversation memory from other tasks. Use dependency summaries and persisted files only.",
+                ]
+            ),
+        ]
+        if attempt > 1 or retry_review:
+            parts.extend(
+                [
+                    "# Previous Output",
+                    previous_output.strip() or "(no previous output captured)",
+                    "# Review Feedback To Address",
+                    retry_review.strip() or "(no review feedback captured)",
+                    "# Retry Instructions",
+                    "\n".join(
+                        [
+                            "- This is a targeted retry, not a blind rerun.",
+                            "- Fix the specific issues from the review feedback.",
+                            "- Reuse existing workspace files and artifacts when they are already correct.",
+                            "- Do not fabricate missing metrics or command results; rerun or inspect files as needed.",
+                            "- Clearly state what changed in this attempt.",
+                        ]
+                    ),
+                ]
+            )
+        parts.append(self._build_execute_user(task, completed))
+        return "\n\n".join(parts)
 
     def _workspace_artifact_path(self, task: dict[str, Any]) -> str:
         task_id = str(task["id"])
