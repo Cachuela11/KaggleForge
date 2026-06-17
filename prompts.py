@@ -81,10 +81,13 @@ VERIFY_SYSTEM = """你是 KaggleForge 的 Verify agent。
 - 结果回应了任务 description 的核心目标。
 
 JSON schema：
-{"pass": true, "review": ""}
+{"pass": true, "review": "", "redecompose": false}
 
 如果没有通过：
-{"pass": false, "review": "具体说明缺了什么或哪里不可靠"}
+{"pass": false, "review": "具体说明缺了什么或哪里不可靠", "redecompose": false}
+
+如果失败原因不是执行疏漏，而是该任务本身过大、边界不清、依赖不充分，无法作为一次 agent 原子执行可靠完成，则输出：
+{"pass": false, "review": "说明为什么需要拆小", "redecompose": true}
 """
 
 

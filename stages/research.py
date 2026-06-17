@@ -88,48 +88,86 @@ class ResearchStage(Stage):
     async def _execute_and_verify(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         completed: dict[str, dict[str, Any]] = {}
         semaphore = asyncio.Semaphore(max(1, settings.api_concurrency))
-        for batch_index, batch in enumerate(self._topological_batches(tasks), start=1):
-            self.emit(
-                phase="execute",
-                status="batch_running",
-                batch=batch_index,
-                task_ids=[task["id"] for task in batch],
-            )
-            dependency_snapshot = dict(completed)
-            results = await asyncio.gather(
-                *[
-                    self._execute_one_task(task, dependency_snapshot, semaphore)
-                    for task in batch
-                ],
-                return_exceptions=True,
-            )
+        batch_index = 0
+        while True:
+            pending = [
+                task for task in tasks
+                if task["id"] not in completed and task.get("status") != "replaced"
+            ]
+            if not pending:
+                break
 
-            for task, result in zip(batch, results):
-                task_id = task["id"]
-                if isinstance(result, Exception):
-                    task["status"] = "failed"
-                    self.db.save_plan(tasks)
-                    self.emit(
-                        phase="execute",
-                        status="failed",
-                        task_id=task_id,
-                        error=str(result),
-                    )
-                    raise result
+            had_recompose = False
+            batches = self._topological_batches(pending, precompleted=set(completed.keys()))
+            for batch in batches:
+                batch_index += 1
+                self.emit(
+                    phase="execute",
+                    status="batch_running",
+                    batch=batch_index,
+                    task_ids=[task["id"] for task in batch],
+                )
+                dependency_snapshot = dict(completed)
+                results = await asyncio.gather(
+                    *[
+                        self._execute_one_task(task, dependency_snapshot, semaphore)
+                        for task in batch
+                    ],
+                    return_exceptions=True,
+                )
 
-                completed[task_id] = result
-                passed = bool(result.get("verification", {}).get("pass"))
-                task["status"] = "completed" if passed else "failed"
-                task["summary"] = result.get("summary", "")
-                self.emit(phase="execute", status="completed", task_id=task_id)
+                for task, result in zip(batch, results):
+                    task_id = task["id"]
+                    if isinstance(result, Exception):
+                        task["status"] = "failed"
+                        self.db.save_plan(tasks)
+                        self.emit(
+                            phase="execute",
+                            status="failed",
+                            task_id=task_id,
+                            error=str(result),
+                        )
+                        raise result
 
-            self.db.save_plan(tasks)
-            self.emit(
-                phase="execute",
-                status="batch_completed",
-                batch=batch_index,
-                task_ids=[task["id"] for task in batch],
-            )
+                    verification = result.get("verification", {})
+                    if verification.get("redecompose"):
+                        task["status"] = "replaced"
+                        self.emit(
+                            phase="decompose",
+                            status="redecomposing",
+                            task_id=task_id,
+                            review=verification.get("review", ""),
+                        )
+                        await self._redecompose_task(
+                            task=task,
+                            result=str(result.get("output", "")),
+                            review=str(verification.get("review", "")),
+                            tasks=tasks,
+                        )
+                        had_recompose = True
+                        continue
+
+                    completed[task_id] = result
+                    passed = bool(verification.get("pass"))
+                    task["status"] = "completed" if passed else "failed"
+                    task["summary"] = result.get("summary", "")
+                    self.emit(phase="execute", status="completed", task_id=task_id)
+
+                self.db.save_plan(tasks)
+                self.emit(
+                    phase="execute",
+                    status="batch_completed",
+                    batch=batch_index,
+                    task_ids=[task["id"] for task in batch],
+                )
+                if had_recompose:
+                    break
+
+            if not had_recompose and not any(
+                task["id"] not in completed and task.get("status") != "replaced"
+                for task in tasks
+            ):
+                break
 
         return list(completed.values())
 
@@ -219,6 +257,8 @@ class ResearchStage(Stage):
 
                 if final_verification.get("pass"):
                     break
+                if final_verification.get("redecompose"):
+                    break
 
                 previous_output = final_output
                 retry_review = str(final_verification.get("review", ""))
@@ -250,10 +290,12 @@ class ResearchStage(Stage):
             return {
                 "pass": False,
                 "review": "Verify agent did not return valid JSON.",
+                "redecompose": False,
             }
         return {
             "pass": bool(data.get("pass")),
             "review": str(data.get("review", "")),
+            "redecompose": bool(data.get("redecompose", False)),
         }
 
     async def _evaluate(
@@ -478,6 +520,219 @@ class ResearchStage(Stage):
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, dest)
 
+    async def _redecompose_task(
+        self,
+        *,
+        task: dict[str, Any],
+        result: str,
+        review: str,
+        tasks: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        task_id = str(task["id"])
+        existing_ids = {str(item["id"]) for item in tasks}
+        user_text = self._build_redecompose_user(task, result, review, tasks)
+        response = await agent(
+            DECOMPOSE_SYSTEM,
+            user_text,
+            cwd=self.db.session_dir,
+        )
+        data = parse_json_fenced(response, default={})
+        raw_children = data.get("tasks", [])
+        children = self._normalize_redecomposed_tasks(
+            raw_children,
+            parent=task,
+            existing_ids=existing_ids,
+        )
+        if not children:
+            task["status"] = "failed"
+            self.db.save_plan(tasks)
+            return []
+
+        terminal_ids = self._terminal_task_ids(children)
+        parent_dependencies = list(task.get("dependencies", []))
+        insert_at = next(
+            (index for index, item in enumerate(tasks) if item["id"] == task_id),
+            len(tasks),
+        )
+        tasks[:] = [item for item in tasks if item["id"] != task_id]
+        for offset, child in enumerate(children):
+            tasks.insert(insert_at + offset, child)
+
+        child_ids = {child["id"] for child in children}
+        for item in tasks:
+            if item["id"] in child_ids:
+                continue
+            deps = list(item.get("dependencies", []))
+            if task_id in deps:
+                rewritten = []
+                for dep in deps:
+                    if dep == task_id:
+                        rewritten.extend(terminal_ids)
+                    else:
+                        rewritten.append(dep)
+                item["dependencies"] = list(dict.fromkeys(rewritten))
+
+        tree = self.db.get_plan_tree() or {
+            "id": "0",
+            "description": "Research stage root",
+            "children": [],
+        }
+        self._replace_tree_node(tree, task_id, task, children)
+        self.db.save_plan_tree(tree)
+        self.db.save_plan(tasks)
+        self.emit(
+            phase="decompose",
+            status="redecomposed",
+            task_id=task_id,
+            child_ids=[child["id"] for child in children],
+        )
+        return children
+
+    def _build_redecompose_user(
+        self,
+        task: dict[str, Any],
+        result: str,
+        review: str,
+        tasks: list[dict[str, Any]],
+    ) -> str:
+        siblings = [
+            {"id": item["id"], "title": item.get("title", ""), "description": item.get("description", "")}
+            for item in tasks
+            if item["id"] != task["id"]
+        ]
+        return "\n\n".join(
+            [
+                "# Task",
+                self.db.get_task(),
+                "# Competition metadata",
+                self._format_jsonish(self.db.get_competition_info()),
+                "# Calibration",
+                self.db.get_calibration(),
+                "# Strategy",
+                self.db.get_strategy(),
+                "# Failed task to redecompose",
+                self._format_jsonish(task),
+                "# Execute output",
+                result or "(empty)",
+                "# Verify review",
+                review or "(empty)",
+                "# Sibling tasks",
+                self._format_jsonish(siblings),
+                "# Request",
+                "\n".join(
+                    [
+                        "请只把 failed task 拆成 2 到 4 个更小的原子子任务。",
+                        "不要重写整个 plan，不要包含 sibling tasks。",
+                        "子任务必须共同替代原 failed task，并尽量复用已有输出中可靠的部分。",
+                        "dependencies 只能引用同一组新子任务中的更早 id；原父任务依赖会由 KaggleForge 自动继承。",
+                        "只输出 JSON，格式仍为 {\"tasks\": [...]}。",
+                    ]
+                ),
+            ]
+        )
+
+    def _normalize_redecomposed_tasks(
+        self,
+        raw_tasks: Any,
+        *,
+        parent: dict[str, Any],
+        existing_ids: set[str],
+    ) -> list[dict[str, Any]]:
+        if not isinstance(raw_tasks, list):
+            return []
+        parent_id = str(parent["id"])
+        parent_deps = [str(dep) for dep in parent.get("dependencies", [])]
+        normalized = []
+        local_map: dict[str, str] = {}
+        used = set(existing_ids)
+        used.discard(parent_id)
+
+        for index, raw in enumerate(raw_tasks, start=1):
+            if not isinstance(raw, dict):
+                continue
+            raw_id = str(raw.get("id") or index).strip() or str(index)
+            child_id = raw_id if raw_id.startswith(f"{parent_id}_") else f"{parent_id}_{raw_id}"
+            child_id = self.db.safe_id(child_id)
+            while child_id in used:
+                child_id = f"{child_id}_{index}"
+            used.add(child_id)
+            local_map[raw_id] = child_id
+
+            raw_deps = raw.get("dependencies", [])
+            if not isinstance(raw_deps, list):
+                raw_deps = []
+            deps = []
+            for dep in raw_deps:
+                dep_key = str(dep)
+                if dep_key in local_map:
+                    deps.append(local_map[dep_key])
+            if not deps:
+                deps = list(parent_deps)
+
+            artifact = str(raw.get("artifact") or f"artifacts/{child_id}/result.md")
+            normalized.append(
+                {
+                    "id": child_id,
+                    "title": str(raw.get("title") or f"{parent.get('title', 'Task')} / {index}"),
+                    "description": str(raw.get("description") or raw.get("title") or ""),
+                    "dependencies": list(dict.fromkeys(deps)),
+                    "artifact": self._rewrite_child_artifact(artifact, child_id),
+                    "status": "pending",
+                    "parent": parent_id,
+                }
+            )
+        return normalized
+
+    def _rewrite_child_artifact(self, artifact: str, child_id: str) -> str:
+        artifact = artifact.replace("\\", "/")
+        if artifact.startswith("artifacts/"):
+            parts = artifact.split("/")
+            if len(parts) >= 3:
+                return "/".join(["artifacts", child_id, *parts[2:]])
+            return f"artifacts/{child_id}/result.md"
+        return f"artifacts/{child_id}/{Path(artifact).name or 'result.md'}"
+
+    @staticmethod
+    def _terminal_task_ids(tasks: list[dict[str, Any]]) -> list[str]:
+        depended = {
+            str(dep)
+            for task in tasks
+            for dep in task.get("dependencies", [])
+        }
+        terminals = [task["id"] for task in tasks if task["id"] not in depended]
+        return terminals or [tasks[-1]["id"]]
+
+    def _replace_tree_node(
+        self,
+        node: dict[str, Any],
+        task_id: str,
+        original: dict[str, Any],
+        children: list[dict[str, Any]],
+    ) -> bool:
+        tree_children = node.setdefault("children", [])
+        for index, child in enumerate(list(tree_children)):
+            if child.get("id") == task_id:
+                tree_children[index] = {
+                    "id": task_id,
+                    "title": original.get("title", ""),
+                    "description": original.get("description", ""),
+                    "status": "replaced",
+                    "children": children,
+                }
+                return True
+            if self._replace_tree_node(child, task_id, original, children):
+                return True
+        if node.get("id") == "0":
+            tree_children.append({
+                "id": task_id,
+                "title": original.get("title", ""),
+                "description": original.get("description", ""),
+                "status": "replaced",
+                "children": children,
+            })
+            return True
+        return False
+
     @staticmethod
     def _build_verify_user(task: dict[str, Any], output: str) -> str:
         return "\n\n".join(
@@ -571,9 +826,12 @@ class ResearchStage(Stage):
         return ordered
 
     @staticmethod
-    def _topological_batches(tasks: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    def _topological_batches(
+        tasks: list[dict[str, Any]],
+        precompleted: set[str] | None = None,
+    ) -> list[list[dict[str, Any]]]:
         remaining = {task["id"]: task for task in tasks}
-        completed: set[str] = set()
+        completed: set[str] = set(precompleted or set())
         batches: list[list[dict[str, Any]]] = []
         while remaining:
             ready = [
