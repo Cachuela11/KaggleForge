@@ -161,6 +161,12 @@ input {
   background: rgba(240, 154, 163, 0.07);
 }
 
+.steps span.stopped {
+  color: var(--warn);
+  border-color: rgba(228, 201, 135, 0.32);
+  background: rgba(228, 201, 135, 0.07);
+}
+
 .workspace {
   min-height: 0;
   overflow: hidden;
@@ -245,44 +251,6 @@ input {
   background: rgba(255, 255, 255, 0.035);
 }
 
-.log {
-  min-height: 0;
-  flex: 1;
-  overflow: auto;
-  padding: 14px;
-  white-space: pre-wrap;
-  font-family: "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
-}
-
-.log-entry {
-  border: 1px solid rgba(255, 255, 255, 0.085);
-  border-left: 3px solid rgba(255, 255, 255, 0.16);
-  border-radius: 8px;
-  margin: 0 0 9px;
-  padding: 10px 12px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent),
-    rgba(0, 0, 0, 0.28);
-}
-
-.log-entry .meta {
-  color: var(--muted-2);
-  font-size: 12px;
-  margin-bottom: 5px;
-}
-
-.log-entry.failed {
-  border-left-color: var(--bad);
-  background: rgba(240, 154, 163, 0.055);
-}
-
-.log-entry.completed {
-  border-left-color: var(--accent);
-  background: rgba(158, 216, 199, 0.055);
-}
-
 .side-panel {
   min-width: 0;
 }
@@ -295,67 +263,62 @@ input {
   background: rgba(0, 0, 0, 0.2);
 }
 
-.status-board {
-  flex: 0 0 min(340px, 46vh);
-  display: grid;
-  grid-template-columns: minmax(250px, 0.7fr) minmax(340px, 1.3fr);
-  gap: 12px;
-  padding: 12px;
-  border-bottom: 1px solid var(--border);
-  background: rgba(0, 0, 0, 0.16);
-  overflow: hidden;
-}
-
-.status-column {
-  min-width: 0;
+.workflow-tree {
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.status-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  margin: 0 0 8px;
-  color: var(--text);
-  font-weight: 660;
-}
-
-.status-heading small {
-  color: var(--muted-2);
-  font-weight: 500;
-}
-
-.status-list {
-  min-height: 0;
-  display: grid;
-  gap: 8px;
+  flex: 1;
   overflow: auto;
-  padding-right: 3px;
+  padding: 24px 26px;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
-.status-node {
-  min-width: 0;
-  min-height: 52px;
+.workflow-stage {
+  padding: 0;
+  margin-bottom: 26px;
+}
+
+.workflow-agents {
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) auto;
+  gap: 9px;
+  margin: 12px 0 0 28px;
+  padding: 0 0 0 18px;
+  border-left: 1px solid rgba(255, 255, 255, 0.11);
+}
+
+.agent-wrap {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+}
+
+.status-node {
+  width: fit-content;
+  max-width: min(100%, 440px);
+  min-height: 0;
+  display: inline-grid;
+  grid-template-columns: 9px auto auto;
   align-items: center;
-  gap: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.085);
-  border-radius: 8px;
-  padding: 9px 11px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent),
-    rgba(0, 0, 0, 0.2);
+  gap: 9px;
+  border: 0;
+  border-radius: 0;
+  padding: 2px 0;
+  background: transparent;
+}
+
+.stage-node {
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  padding: 2px 0;
+}
+
+.agent-node {
+  min-height: 0;
 }
 
 .status-dot {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
   border-radius: 999px;
   background: var(--muted-2);
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.035);
@@ -368,13 +331,13 @@ input {
 .status-name {
   color: var(--text);
   font-weight: 620;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
+  text-overflow: clip;
   white-space: nowrap;
 }
 
 .status-body small {
-  display: block;
+  display: none;
   color: var(--muted-2);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -382,10 +345,10 @@ input {
 }
 
 .status-badge {
-  max-width: 104px;
+  max-width: 128px;
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 999px;
-  padding: 2px 7px;
+  padding: 2px 6px;
   color: var(--muted);
   font-size: 11px;
   white-space: nowrap;
@@ -394,8 +357,7 @@ input {
 }
 
 .status-node.running {
-  border-color: rgba(185, 215, 242, 0.24);
-  background: rgba(185, 215, 242, 0.055);
+  color: var(--blue);
 }
 
 .status-node.running .status-dot {
@@ -404,8 +366,7 @@ input {
 }
 
 .status-node.completed {
-  border-color: rgba(158, 216, 199, 0.22);
-  background: rgba(158, 216, 199, 0.045);
+  color: var(--accent-strong);
 }
 
 .status-node.completed .status-dot {
@@ -413,18 +374,44 @@ input {
 }
 
 .status-node.failed {
-  border-color: rgba(240, 154, 163, 0.3);
-  background: rgba(240, 154, 163, 0.055);
+  color: var(--bad);
 }
 
 .status-node.failed .status-dot {
   background: var(--bad);
 }
 
+.status-node.stopped {
+  color: var(--warn);
+}
+
+.status-node.stopped .status-dot {
+  background: var(--warn);
+}
+
+.agent-output {
+  width: min(100%, 420px);
+  max-height: 132px;
+  overflow: auto;
+  border: 1px solid rgba(185, 215, 242, 0.18);
+  border-radius: 8px;
+  padding: 9px 10px;
+  color: rgba(243, 241, 236, 0.86);
+  background:
+    linear-gradient(180deg, rgba(185, 215, 242, 0.07), transparent),
+    rgba(0, 0, 0, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
 .tabs {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
   padding: 12px 12px 0;
 }
@@ -750,6 +737,18 @@ input {
   background: linear-gradient(180deg, #c8eee3, #8fcabb);
 }
 
+.input-bar #stop-btn {
+  color: var(--text);
+  border-color: rgba(240, 154, 163, 0.28);
+  background: rgba(240, 154, 163, 0.09);
+}
+
+.input-bar #stop-btn:disabled {
+  color: var(--muted-2);
+  border-color: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.035);
+}
+
 dialog {
   width: min(960px, calc(100vw - 40px));
   max-height: min(780px, calc(100vh - 40px));
@@ -824,10 +823,6 @@ dialog::backdrop {
   .workspace {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
-  }
-
-  .status-board {
-    grid-template-columns: 1fr;
   }
 
   .input-bar {

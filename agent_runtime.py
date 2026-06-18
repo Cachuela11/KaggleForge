@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from config import settings
 from codex_runtime import CodexCliRuntime
 
 
-async def agent(system_prompt: str, user_text: str, *, cwd: Path) -> str:
+async def agent(
+    system_prompt: str,
+    user_text: str,
+    *,
+    cwd: Path,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
+) -> str:
     """Run one workflow node as an agent call.
 
     Stages call this function instead of talking to Codex directly.
@@ -39,6 +47,7 @@ async def agent(system_prompt: str, user_text: str, *, cwd: Path) -> str:
             instruction=system_prompt,
             user_text=user_text,
             cwd=cwd,
+            on_event=on_event,
         )
 
     return (

@@ -52,6 +52,15 @@ class Orchestrator:
                 print(f"[{stage.name}] running")
                 await stage.run()
                 print(f"[{stage.name}] completed")
+        except asyncio.CancelledError:
+            for stage in self.stages:
+                stage.stop()
+            self.broadcast({
+                "type": "pipeline.stopped",
+                "session_id": self.db.research_id,
+                "session_dir": str(self.db.session_dir),
+            })
+            raise
         except Exception as exc:
             self.broadcast({"type": "pipeline.failed", "error": describe_exception(exc)})
             raise
@@ -64,6 +73,18 @@ class Orchestrator:
             "session_dir": str(self.db.session_dir),
         })
         return str(self.db.session_dir)
+
+    def open_session(self, session_id: str) -> str:
+        opened = self.db.open_session(session_id)
+        self._source = self.db.get_source()
+        for stage in self.stages:
+            stage.reset()
+        self.broadcast({
+            "type": "session.opened",
+            "session_id": opened,
+            "session_dir": str(self.db.session_dir),
+        })
+        return opened
 
     def status(self) -> list[dict[str, str | int]]:
         return [stage.status() for stage in self.stages]

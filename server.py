@@ -21,6 +21,10 @@ class StartRequest(BaseModel):
     input: str
 
 
+class OpenSessionRequest(BaseModel):
+    session_id: str
+
+
 app = FastAPI(title="KaggleForge", version="0.1.0")
 orchestrator = Orchestrator()
 pipeline_task: asyncio.Task | None = None
@@ -60,13 +64,47 @@ async def start_pipeline(req: StartRequest) -> dict[str, Any]:
     return {"status": "started", "input": source}
 
 
+@app.post("/api/pipeline/stop")
+async def stop_pipeline() -> dict[str, Any]:
+    global pipeline_task
+    if not pipeline_task or pipeline_task.done():
+        return {"status": "idle"}
+    pipeline_task.cancel()
+    return {"status": "stopping"}
+
+
 @app.get("/api/pipeline/status")
 async def pipeline_status() -> dict[str, Any]:
     status = orchestrator.pipeline_status()
     status["task_done"] = bool(pipeline_task.done()) if pipeline_task else True
-    if pipeline_task and pipeline_task.done() and pipeline_task.exception():
-        status["error"] = describe_exception(pipeline_task.exception())
+    if pipeline_task and pipeline_task.done():
+        if pipeline_task.cancelled():
+            status["error"] = "Pipeline stopped."
+        else:
+            exc = pipeline_task.exception()
+            if exc:
+                status["error"] = describe_exception(exc)
     return status
+
+
+@app.get("/api/sessions")
+async def list_sessions() -> list[dict[str, Any]]:
+    return orchestrator.db.list_sessions()
+
+
+@app.post("/api/sessions/open")
+async def open_session(req: OpenSessionRequest) -> dict[str, Any]:
+    if pipeline_task and not pipeline_task.done():
+        raise HTTPException(status_code=409, detail="Cannot open a session while pipeline is running.")
+    try:
+        session_id = orchestrator.open_session(req.session_id)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "status": "opened",
+        "session_id": session_id,
+        "session_dir": str(orchestrator.db.session_dir),
+    }
 
 
 @app.get("/api/runtime/status")

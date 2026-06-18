@@ -17,6 +17,7 @@ class StageState(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    STOPPED = "stopped"
 
 
 class Stage:
@@ -33,6 +34,11 @@ class Stage:
         self.state = StageState.IDLE
         self.output = ""
         self.error = ""
+
+    def stop(self) -> None:
+        if self.state == StageState.RUNNING:
+            self.state = StageState.STOPPED
+            self.emit(status="stopped")
 
     async def run(self) -> str:
         self.state = StageState.RUNNING
@@ -65,3 +71,18 @@ class Stage:
             return
         payload = {"stage": self.name, **event}
         self.event_sink(payload)
+
+    def agent_output_sink(self, phase: str, **base: Any) -> Callable[[dict[str, Any]], None]:
+        def sink(event: dict[str, Any]) -> None:
+            message = str(event.get("message", "")).strip()
+            if not message:
+                return
+            self.emit(
+                type="agent.output",
+                phase=phase,
+                status="running",
+                message=message,
+                **base,
+            )
+
+        return sink

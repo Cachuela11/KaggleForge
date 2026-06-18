@@ -32,6 +32,44 @@ class ResearchDB:
         self._root.mkdir(parents=True, exist_ok=True)
         return self.research_id
 
+    def open_session(self, session_id: str) -> str:
+        safe = session_id.strip().strip("/\\")
+        path = (self.base_dir / safe).resolve()
+        root = self.base_dir.resolve()
+        try:
+            path.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(f"Invalid session id: {session_id}") from exc
+        if not path.exists() or not path.is_dir():
+            raise FileNotFoundError(f"Session not found: {session_id}")
+        self.research_id = path.name
+        self._root = path
+        return self.research_id
+
+    def list_sessions(self) -> list[dict[str, Any]]:
+        if not self.base_dir.exists():
+            return []
+        sessions = []
+        for path in sorted(
+            [item for item in self.base_dir.iterdir() if item.is_dir()],
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        ):
+            source_path = path / "source.md"
+            source = source_path.read_text(encoding="utf-8", errors="replace").strip() if source_path.exists() else ""
+            files = [item for item in path.rglob("*") if item.is_file()]
+            artifacts = [item for item in (path / "artifacts").rglob("*") if item.is_file()] if (path / "artifacts").exists() else []
+            sessions.append({
+                "session_id": path.name,
+                "source": source,
+                "path": str(path),
+                "modified_time": datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds"),
+                "file_count": len(files),
+                "artifact_count": len(artifacts),
+                "active": path.name == self.research_id,
+            })
+        return sessions
+
     @staticmethod
     def _source_slug(source: str) -> str:
         competition = re.search(

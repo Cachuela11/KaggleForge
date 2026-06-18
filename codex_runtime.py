@@ -6,7 +6,9 @@ import os
 import shutil
 import subprocess
 import uuid
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any, TextIO
 
 
 class CodexCliRuntime:
@@ -45,42 +47,131 @@ class CodexCliRuntime:
         self.docker_codex_bin = docker_codex_bin
         self.docker_gpus = docker_gpus.strip()
 
-    async def run(self, *, instruction: str, user_text: str, cwd: Path) -> str:
+    async def run(
+        self,
+        *,
+        instruction: str,
+        user_text: str,
+        cwd: Path,
+        on_event: Callable[[dict[str, Any]], None] | None = None,
+    ) -> str:
         cwd.mkdir(parents=True, exist_ok=True)
         prompt = self._build_prompt(instruction, user_text)
 
         output_path = cwd / f".kaggleforge_codex_{uuid.uuid4().hex}.md"
         cmd = self._build_command(cwd=cwd, prompt=prompt, output_path=output_path)
+        proc: subprocess.Popen[str] | None = None
+        stdout_task: asyncio.Task[None] | None = None
+        stderr_task: asyncio.Task[None] | None = None
+        wait_task: asyncio.Task[int] | None = None
+        stdout_lines: list[str] = []
+        stderr_lines: list[str] = []
         try:
-            completed = await asyncio.to_thread(
-                subprocess.run,
+            proc = subprocess.Popen(
                 cmd,
                 stdin=subprocess.DEVNULL,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=self.timeout,
                 env=self._build_env(),
             )
+            stdout_task = asyncio.create_task(
+                self._read_stream(
+                    proc.stdout,
+                    stdout_lines,
+                    is_stdout=True,
+                    on_event=on_event,
+                )
+            )
+            stderr_task = asyncio.create_task(
+                self._read_stream(
+                    proc.stderr,
+                    stderr_lines,
+                    is_stdout=False,
+                    on_event=None,
+                )
+            )
+            wait_task = asyncio.create_task(asyncio.to_thread(proc.wait))
+            await asyncio.wait_for(wait_task, timeout=self.timeout)
+            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+            returncode = proc.returncode
+        except asyncio.CancelledError:
+            if proc and proc.poll() is None:
+                proc.kill()
+                await asyncio.to_thread(proc.wait)
+            for task in (stdout_task, stderr_task, wait_task):
+                if task and not task.done():
+                    task.cancel()
+            await asyncio.gather(
+                *[task for task in (stdout_task, stderr_task) if task],
+                return_exceptions=True,
+            )
+            output_path.unlink(missing_ok=True)
+            raise
         except subprocess.TimeoutExpired as exc:
+            if proc and proc.poll() is None:
+                proc.kill()
+                await asyncio.to_thread(proc.wait)
+            for task in (stdout_task, stderr_task, wait_task):
+                if task and not task.done():
+                    task.cancel()
+            await asyncio.gather(
+                *[task for task in (stdout_task, stderr_task) if task],
+                return_exceptions=True,
+            )
+            output_path.unlink(missing_ok=True)
+            raise TimeoutError("Codex call timed out") from exc
+        except TimeoutError as exc:
+            if proc and proc.poll() is None:
+                proc.kill()
+                await asyncio.to_thread(proc.wait)
+            for task in (stdout_task, stderr_task, wait_task):
+                if task and not task.done():
+                    task.cancel()
+            await asyncio.gather(
+                *[task for task in (stdout_task, stderr_task) if task],
+                return_exceptions=True,
+            )
             output_path.unlink(missing_ok=True)
             raise TimeoutError("Codex call timed out") from exc
 
-        stdout = completed.stdout
-        stderr = completed.stderr
-        self._print_codex_events(stdout)
+        stdout = "".join(stdout_lines)
+        stderr = "".join(stderr_lines)
 
         result = ""
         if output_path.exists():
             result = output_path.read_text(encoding="utf-8", errors="replace")
             output_path.unlink(missing_ok=True)
 
-        if completed.returncode != 0:
+        if returncode != 0:
             detail = stderr.strip() or self._tail(stdout)
-            raise RuntimeError(f"Codex failed with exit code {completed.returncode}: {detail}")
+            raise RuntimeError(f"Codex failed with exit code {returncode}: {detail}")
 
         return result.strip()
+
+    async def _read_stream(
+        self,
+        stream: TextIO | None,
+        lines: list[str],
+        *,
+        is_stdout: bool,
+        on_event: Callable[[dict[str, Any]], None] | None,
+    ) -> None:
+        if stream is None:
+            return
+        while True:
+            line = await asyncio.to_thread(stream.readline)
+            if line == "":
+                break
+            lines.append(line)
+            if is_stdout:
+                self._print_codex_event_line(line, on_event=on_event)
+            else:
+                message = line.strip()
+                if message:
+                    print(f"  codex err: {message}")
 
     def _build_command(self, *, cwd: Path, prompt: str, output_path: Path) -> list[str]:
         if self.sandbox_provider == "docker":
@@ -379,7 +470,11 @@ class CodexCliRuntime:
             CodexCliRuntime._print_codex_event_line(line)
 
     @staticmethod
-    def _print_codex_event_line(line: str) -> None:
+    def _print_codex_event_line(
+        line: str,
+        *,
+        on_event: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
         line = line.strip()
         if not line:
             return
@@ -393,6 +488,8 @@ class CodexCliRuntime:
             message = item.get("text") or item.get("command") or ""
         if message:
             print(f"  codex: {message}")
+            if on_event:
+                on_event({"type": "codex.output", "message": message})
 
     @staticmethod
     def _tail(text: str, max_lines: int = 10) -> str:

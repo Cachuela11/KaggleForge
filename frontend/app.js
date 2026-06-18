@@ -8,8 +8,10 @@ const state = {
   files: [],
   taskRuns: [],
   liveTaskRuns: {},
+  sessions: [],
   stages: {},
   agents: {},
+  agentOutputs: {},
 };
 
 const stageOrder = ['intake', 'research', 'report'];
@@ -45,6 +47,12 @@ const agentStage = {
   writer: 'report',
   reviewer: 'report',
   polish: 'report',
+};
+
+const stageAgents = {
+  intake: ['calibrate'],
+  research: ['strategy', 'decompose', 'execute', 'verify', 'evaluate'],
+  report: ['collect', 'writer', 'reviewer', 'polish'],
 };
 
 const docs = [
@@ -91,25 +99,9 @@ function api(path, options) {
 }
 
 function appendLog(event) {
-  const log = el('log');
-  const row = document.createElement('div');
-  row.className = `log-entry ${event.status || ''}`;
-  const title = [
-    event.type || event.stage || 'event',
-    event.phase ? `/${event.phase}` : '',
-    event.task_id ? ` task ${event.task_id}` : '',
-    event.status ? ` ${event.status}` : '',
-  ].join('');
-  const meta = document.createElement('div');
-  meta.className = 'meta';
-  meta.textContent = new Date().toLocaleTimeString() + '  ' + title;
-  row.appendChild(meta);
-
-  const text = document.createElement('div');
-  text.textContent = event.error || event.message || JSON.stringify(stripLarge(event), null, 2);
-  row.appendChild(text);
-  log.appendChild(row);
-  log.scrollTop = log.scrollHeight;
+  if (event.status === 'failed' || event.type === 'pipeline.failed') {
+    console.error(event);
+  }
 }
 
 function stripLarge(event) {
@@ -128,6 +120,7 @@ function resetRunState() {
     name,
     { name, state: 'pending', detail: '', taskId: '' },
   ]));
+  state.agentOutputs = {};
   document.querySelectorAll('[data-step]').forEach((node) => {
     node.classList.remove('active', 'done', 'failed');
   });
@@ -173,6 +166,44 @@ function updateRunState(event) {
         state.stages[name].state = 'completed';
       }
     }
+    state.agentOutputs = {};
+    renderRunState();
+    return;
+  }
+
+  if (event.type === 'pipeline.stopped') {
+    for (const name of stageOrder) {
+      if (state.stages[name]?.state === 'running') {
+        state.stages[name].state = 'stopped';
+      }
+    }
+    state.agentOutputs = {};
+    renderRunState();
+    return;
+  }
+
+  if (event.type === 'session.opened') {
+    state.liveTaskRuns = {};
+    state.agentOutputs = {};
+    renderRunState();
+    return;
+  }
+
+  if (event.type === 'agent.output' && event.phase) {
+    appendAgentOutput(event.phase, event.message || '');
+    const agentName = event.phase;
+    if (state.agents[agentName]) {
+      state.agents[agentName] = {
+        ...state.agents[agentName],
+        state: 'running',
+        detail: agentDetail(event),
+        taskId: event.task_id || state.agents[agentName].taskId || '',
+      };
+    }
+    const parentStage = agentStage[agentName] || event.stage;
+    if (parentStage && state.stages[parentStage]) {
+      state.stages[parentStage].state = 'running';
+    }
     renderRunState();
     return;
   }
@@ -183,6 +214,7 @@ function updateRunState(event) {
       state.stages[active].state = 'failed';
       state.stages[active].detail = event.error || '';
     }
+    state.agentOutputs = {};
     renderRunState();
     return;
   }
@@ -212,6 +244,9 @@ function updateRunState(event) {
       detail: agentDetail(event),
       taskId: event.task_id || state.agents[agentName].taskId || '',
     };
+    if (['completed', 'failed', 'stopped'].includes(normalizeStatus(event.status))) {
+      delete state.agentOutputs[agentName];
+    }
 
     const parentStage = agentStage[agentName] || event.stage;
     if (parentStage && state.stages[parentStage] && state.stages[parentStage].state === 'pending') {
@@ -220,6 +255,14 @@ function updateRunState(event) {
   }
 
   renderRunState();
+}
+
+function appendAgentOutput(agentName, message) {
+  const clean = String(message || '').trim();
+  if (!clean) return;
+  const previous = state.agentOutputs[agentName] || '';
+  const joined = previous ? `${previous}\n${clean}` : clean;
+  state.agentOutputs[agentName] = joined.slice(-2600);
 }
 
 function updateTaskRunEvent(event) {
@@ -269,43 +312,78 @@ function agentDetail(event) {
 }
 
 function renderRunState() {
-  renderStatusList(el('stage-status-list'), stageOrder, state.stages, stageLabels);
-  renderStatusList(el('agent-status-list'), agentOrder, state.agents, agentLabels);
+  renderWorkflowTree(el('workflow-tree'));
 }
 
-function renderStatusList(container, order, source, labels) {
+function renderWorkflowTree(container) {
   if (!container) return;
   container.textContent = '';
-  for (const name of order) {
-    const item = source[name] || { name, state: 'pending', detail: '' };
-    const normalized = normalizeStatus(item.state);
-    const row = document.createElement('div');
-    row.className = `status-node ${normalized}`;
+  for (const stageName of stageOrder) {
+    const stage = state.stages[stageName] || { name: stageName, state: 'pending', detail: '' };
+    const group = document.createElement('section');
+    group.className = `workflow-stage ${normalizeStatus(stage.state)}`;
 
-    const dot = document.createElement('span');
-    dot.className = 'status-dot';
-    row.appendChild(dot);
+    const header = statusNode({
+      label: stageLabels[stageName] || stageName,
+      status: stage.state,
+      detail: stage.detail || 'stage',
+      className: 'stage-node',
+    });
+    group.appendChild(header);
 
-    const body = document.createElement('div');
-    body.className = 'status-body';
-
-    const title = document.createElement('div');
-    title.className = 'status-name';
-    title.textContent = labels[name] || name;
-    body.appendChild(title);
-
-    const detail = document.createElement('small');
-    detail.textContent = item.detail || normalized;
-    body.appendChild(detail);
-    row.appendChild(body);
-
-    const badge = document.createElement('span');
-    badge.className = 'status-badge';
-    badge.textContent = normalized;
-    row.appendChild(badge);
-
-    container.appendChild(row);
+    const agents = document.createElement('div');
+    agents.className = 'workflow-agents';
+    for (const agentName of stageAgents[stageName] || []) {
+      const agent = state.agents[agentName] || { name: agentName, state: 'pending', detail: '' };
+      const wrap = document.createElement('div');
+      wrap.className = 'agent-wrap';
+      wrap.appendChild(statusNode({
+        label: agentLabels[agentName] || agentName,
+        status: agent.state,
+        detail: agent.detail || 'agent',
+        className: 'agent-node',
+      }));
+      const output = state.agentOutputs[agentName];
+      if (normalizeStatus(agent.state) === 'running' && output) {
+        const outputBox = document.createElement('div');
+        outputBox.className = 'agent-output';
+        outputBox.textContent = output;
+        wrap.appendChild(outputBox);
+      }
+      agents.appendChild(wrap);
+    }
+    group.appendChild(agents);
+    container.appendChild(group);
   }
+}
+
+function statusNode({ label, status, detail, className }) {
+  const normalized = normalizeStatus(status);
+  const row = document.createElement('div');
+  row.className = `status-node ${className} ${normalized}`;
+
+  const dot = document.createElement('span');
+  dot.className = 'status-dot';
+  row.appendChild(dot);
+
+  const body = document.createElement('div');
+  body.className = 'status-body';
+
+  const title = document.createElement('div');
+  title.className = 'status-name';
+  title.textContent = label;
+  body.appendChild(title);
+
+  const detailNode = document.createElement('small');
+  detailNode.textContent = detail || normalized;
+  body.appendChild(detailNode);
+  row.appendChild(body);
+
+  const badge = document.createElement('span');
+  badge.className = 'status-badge';
+  badge.textContent = normalized;
+  row.appendChild(badge);
+  return row;
 }
 
 function updateSteps(event) {
@@ -318,6 +396,7 @@ function updateSteps(event) {
   if (event.status === 'running') node.classList.add('active');
   if (event.status === 'completed') node.classList.add('done');
   if (event.status === 'failed') node.classList.add('failed');
+  if (event.status === 'stopped') node.classList.add('stopped');
 }
 
 async function refreshStatus() {
@@ -337,6 +416,8 @@ async function refreshStatus() {
     state.status = await api('/api/pipeline/status');
     syncStageStatus(state.status.stages);
     renderSummary();
+    el('start-btn').disabled = Boolean(state.status.running);
+    el('stop-btn').disabled = !state.status.running;
   } catch {
     // no active server state yet
   }
@@ -375,6 +456,11 @@ async function refreshSession() {
   } catch {
     state.taskRuns = [];
   }
+  try {
+    state.sessions = await api('/api/sessions');
+  } catch {
+    state.sessions = [];
+  }
   renderTab();
 }
 
@@ -397,6 +483,7 @@ function renderTab() {
   if (state.activeTab === 'plan') renderPlan(box);
   if (state.activeTab === 'tasks') renderTasks(box);
   if (state.activeTab === 'artifacts') renderArtifacts(box);
+  if (state.activeTab === 'sessions') renderSessions(box);
 }
 
 function renderDocs(box) {
@@ -447,6 +534,25 @@ function renderArtifacts(box) {
   for (const artifact of state.artifacts) {
     const item = itemNode(artifact.path, `${artifact.size_bytes} bytes`, { exists: true });
     item.onclick = () => openFile(artifact.path);
+    box.appendChild(item);
+  }
+}
+
+function renderSessions(box) {
+  if (!state.sessions.length) {
+    box.textContent = 'No sessions yet.';
+    return;
+  }
+  for (const session of state.sessions) {
+    const item = itemNode(
+      session.session_id,
+      `${session.artifact_count} artifacts / ${session.file_count} files / ${session.modified_time}`,
+      { exists: session.active },
+    );
+    const source = document.createElement('small');
+    source.textContent = session.source || session.path || '';
+    item.appendChild(source);
+    item.onclick = () => openHistoricalSession(session.session_id);
     box.appendChild(item);
   }
 }
@@ -720,8 +826,9 @@ function connectSSE() {
     if (data.status === 'completed' || data.type === 'pipeline.completed') {
       await refreshSession();
     }
-    if (data.type === 'pipeline.completed' || data.type === 'pipeline.failed') {
+    if (data.type === 'pipeline.completed' || data.type === 'pipeline.failed' || data.type === 'pipeline.stopped') {
       el('start-btn').disabled = false;
+      el('stop-btn').disabled = true;
     }
   };
   source.onerror = () => {
@@ -734,7 +841,7 @@ async function startPipeline(event) {
   const input = el('source-input').value.trim();
   if (!input) return;
   el('start-btn').disabled = true;
-  el('log').textContent = '';
+  el('stop-btn').disabled = false;
   resetRunState();
   clearSessionView();
   try {
@@ -747,6 +854,34 @@ async function startPipeline(event) {
   } catch (error) {
     appendLog({ type: 'ui', status: 'failed', message: error.message });
     el('start-btn').disabled = false;
+    el('stop-btn').disabled = true;
+  }
+}
+
+async function stopPipeline() {
+  el('stop-btn').disabled = true;
+  try {
+    const result = await api('/api/pipeline/stop', { method: 'POST' });
+    appendLog({ type: 'ui', status: 'stopping', message: `Pipeline ${result.status}.` });
+    await refreshStatus();
+  } catch (error) {
+    appendLog({ type: 'ui', status: 'failed', message: error.message });
+    await refreshStatus();
+  }
+}
+
+async function openHistoricalSession(sessionId) {
+  try {
+    await api('/api/sessions/open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+    appendLog({ type: 'ui', status: 'completed', message: `Opened session ${sessionId}.` });
+    state.liveTaskRuns = {};
+    await refreshSession();
+  } catch (error) {
+    appendLog({ type: 'ui', status: 'failed', message: error.message });
   }
 }
 
@@ -762,6 +897,7 @@ function initTabs() {
 }
 
 el('input-bar').addEventListener('submit', startPipeline);
+el('stop-btn').addEventListener('click', stopPipeline);
 el('refresh-btn').addEventListener('click', refreshSession);
 el('viewer-close').addEventListener('click', () => el('viewer').close());
 

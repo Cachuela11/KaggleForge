@@ -74,6 +74,7 @@ class ReportStage(Stage):
             REPORT_WRITER_SYSTEM,
             context["markdown"],
             cwd=self.db.session_dir,
+            on_event=self.agent_output_sink("writer"),
         )
         self.db.save_paper(draft)
         self.emit(phase="writer", status="completed")
@@ -84,6 +85,7 @@ class ReportStage(Stage):
             REPORT_REVIEWER_SYSTEM,
             self._build_review_user(context["markdown"], draft),
             cwd=self.db.session_dir,
+            on_event=self.agent_output_sink("reviewer"),
         )
         review = self._normalize_review(parse_json_fenced(review_raw, default={}))
         self.db.save_text("report_review.md", review_raw)
@@ -96,6 +98,7 @@ class ReportStage(Stage):
             REPORT_POLISH_SYSTEM,
             self._build_polish_user(context["markdown"], draft, review),
             cwd=self.db.session_dir,
+            on_event=self.agent_output_sink("polish"),
         )
         final = final.rstrip() + "\n\n" + self._build_metadata_appendix(context["data"])
         self.db.save_paper_polished(final)

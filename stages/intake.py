@@ -31,6 +31,7 @@ class IntakeStage(Stage):
                 CALIBRATE_SYSTEM,
                 self._build_calibrate_user(task),
                 cwd=self.db.session_dir,
+                on_event=self.agent_output_sink("calibrate"),
             )
             self.db.save_calibration(calibration)
             self.emit(phase="calibrate", status="completed")

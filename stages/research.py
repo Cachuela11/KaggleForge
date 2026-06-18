@@ -57,6 +57,7 @@ class ResearchStage(Stage):
             STRATEGY_SYSTEM,
             self._build_strategy_user(),
             cwd=self.db.session_dir,
+            on_event=self.agent_output_sink("strategy"),
         )
         self.db.save_strategy(strategy)
         return strategy
@@ -70,6 +71,7 @@ class ResearchStage(Stage):
             DECOMPOSE_SYSTEM,
             self._build_decompose_user(strategy),
             cwd=self.db.session_dir,
+            on_event=self.agent_output_sink("decompose"),
         )
         data = parse_json_fenced(response, default={})
         tasks = self._normalize_tasks(data.get("tasks", []))
@@ -222,6 +224,7 @@ class ResearchStage(Stage):
                             retry_review=retry_review,
                         ),
                         cwd=workspace,
+                        on_event=self.agent_output_sink("execute", task_id=task_id),
                     )
                     self.db.save_task_output(task_id, final_output)
                     self.db.save_text(
@@ -284,6 +287,7 @@ class ResearchStage(Stage):
             VERIFY_SYSTEM,
             self._build_verify_user(task, output),
             cwd=self.db.session_dir,
+            on_event=self.agent_output_sink("verify", task_id=str(task.get("id", ""))),
         )
         data = parse_json_fenced(response, default={})
         if "pass" not in data:
@@ -312,6 +316,7 @@ class ResearchStage(Stage):
             EVALUATE_SYSTEM,
             self._build_evaluate_user(strategy, plan, completed),
             cwd=self.db.session_dir,
+            on_event=self.agent_output_sink("evaluate"),
         )
         data = parse_json_fenced(response, default={})
         evaluation = {
@@ -535,6 +540,7 @@ class ResearchStage(Stage):
             DECOMPOSE_SYSTEM,
             user_text,
             cwd=self.db.session_dir,
+            on_event=self.agent_output_sink("decompose", task_id=task_id),
         )
         data = parse_json_fenced(response, default={})
         raw_children = data.get("tasks", [])
