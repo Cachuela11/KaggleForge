@@ -524,6 +524,138 @@ input {
   white-space: nowrap;
 }
 
+.file-tree,
+.file-tree-branch {
+  display: grid;
+  gap: 7px;
+}
+
+.file-folder {
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.12);
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.file-folder summary {
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 640;
+  list-style-position: inside;
+  outline: none;
+}
+
+.file-folder[open] summary {
+  margin-bottom: 8px;
+}
+
+.file-item {
+  margin-left: calc(var(--depth, 0) * 8px);
+}
+
+.task-card {
+  border: 1px solid rgba(255, 255, 255, 0.085);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent),
+    rgba(0, 0, 0, 0.18);
+}
+
+.task-card.exists {
+  border-color: rgba(158, 216, 199, 0.25);
+  background: rgba(158, 216, 199, 0.04);
+}
+
+.task-card.failed {
+  border-color: rgba(240, 154, 163, 0.32);
+  background: rgba(240, 154, 163, 0.055);
+}
+
+.task-card-head {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.task-card-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-weight: 650;
+}
+
+.task-card-badge {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 2px 7px;
+}
+
+.task-card-desc {
+  color: var(--muted-2);
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
+.task-file-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.file-link {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--muted);
+  display: grid;
+  grid-template-columns: 98px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 7px 9px;
+  text-align: left;
+  cursor: default;
+}
+
+.file-link.exists {
+  cursor: pointer;
+  color: var(--text);
+  border-color: rgba(158, 216, 199, 0.2);
+  background: rgba(158, 216, 199, 0.035);
+}
+
+.file-link.exists:hover {
+  border-color: rgba(158, 216, 199, 0.36);
+  background: rgba(158, 216, 199, 0.065);
+}
+
+.file-link:disabled {
+  opacity: 0.58;
+}
+
+.file-link span {
+  color: var(--muted-2);
+  font-size: 12px;
+}
+
+.file-link strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 540;
+}
+
 .input-bar {
   z-index: 5;
   height: 72px;

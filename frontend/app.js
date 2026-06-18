@@ -5,6 +5,7 @@ const state = {
   tree: null,
   artifacts: [],
   documents: {},
+  files: [],
   stages: {},
   agents: {},
 };
@@ -137,6 +138,7 @@ function clearSessionView() {
   state.tree = null;
   state.artifacts = [];
   state.documents = {};
+  state.files = [];
   el('session-label').textContent = '';
   el('summary').textContent = 'Starting new session.';
   renderTab();
@@ -321,6 +323,11 @@ async function refreshSession() {
     state.documents = {};
   }
   try {
+    state.files = await api('/api/session/files');
+  } catch {
+    state.files = [];
+  }
+  try {
     state.plan = await api('/api/session/plan/list');
   } catch {
     state.plan = [];
@@ -360,13 +367,17 @@ function renderTab() {
 }
 
 function renderDocs(box) {
-  for (const name of docs) {
-    const doc = state.documents[name] || { exists: false, size_bytes: 0 };
-    const subtitle = doc.exists ? `${doc.size_bytes} bytes` : 'Not generated yet';
-    const item = itemNode(name, subtitle, { exists: doc.exists });
-    item.onclick = () => openDocument(name);
-    box.appendChild(item);
+  if (!state.files.length) {
+    for (const name of docs) {
+      const doc = state.documents[name] || { exists: false, size_bytes: 0 };
+      const subtitle = doc.exists ? `${doc.size_bytes} bytes` : 'Not generated yet';
+      const item = itemNode(name, subtitle, { exists: doc.exists });
+      item.onclick = () => openDocument(name);
+      box.appendChild(item);
+    }
+    return;
   }
+  box.appendChild(fileTreeNode(buildFileTree(state.files)));
 }
 
 function renderPlan(box) {
@@ -390,12 +401,7 @@ function renderTasks(box) {
     return;
   }
   for (const task of state.plan) {
-    const item = itemNode(`[${task.id}] ${task.title || 'Task'}`, task.artifact || '', {
-      exists: task.status === 'completed',
-      failed: task.status === 'failed',
-    });
-    item.onclick = () => openTask(task.id);
-    box.appendChild(item);
+    box.appendChild(taskNode(task));
   }
 }
 
@@ -406,9 +412,134 @@ function renderArtifacts(box) {
   }
   for (const artifact of state.artifacts) {
     const item = itemNode(artifact.path, `${artifact.size_bytes} bytes`, { exists: true });
-    item.onclick = () => window.open(`/api/session/artifacts/${artifact.path.replace(/^artifacts\//, '')}`, '_blank');
+    item.onclick = () => openFile(artifact.path);
     box.appendChild(item);
   }
+}
+
+function taskNode(task) {
+  const safe = safeId(task.id);
+  const files = state.files || [];
+  const outputPath = `tasks/${safe}.md`;
+  const verificationPath = `verifications/${safe}.json`;
+  const outputAttempts = files.filter((file) => file.path.startsWith(`tasks/${safe}.attempt_`));
+  const verificationAttempts = files.filter((file) => file.path.startsWith(`verifications/${safe}.attempt_`));
+  const artifacts = files.filter((file) => file.path.startsWith(`artifacts/${safe}/`));
+  const verification = state.documents[verificationPath] || {};
+
+  const card = document.createElement('div');
+  card.className = `task-card ${task.status === 'completed' ? 'exists' : ''} ${task.status === 'failed' ? 'failed' : ''}`;
+
+  const header = document.createElement('div');
+  header.className = 'task-card-head';
+  const title = document.createElement('div');
+  title.className = 'task-card-title';
+  title.textContent = `[${task.id}] ${task.title || 'Task'}`;
+  header.appendChild(title);
+
+  const badge = document.createElement('span');
+  badge.className = 'task-card-badge';
+  badge.textContent = task.status || 'pending';
+  header.appendChild(badge);
+  card.appendChild(header);
+
+  const desc = document.createElement('div');
+  desc.className = 'task-card-desc';
+  desc.textContent = task.description || task.artifact || '';
+  card.appendChild(desc);
+
+  const links = document.createElement('div');
+  links.className = 'task-file-list';
+  links.appendChild(fileLink('Output', outputPath, fileExists(outputPath)));
+  for (const file of outputAttempts) links.appendChild(fileLink('Output attempt', file.path, true));
+  links.appendChild(fileLink('Verification', verificationPath, fileExists(verificationPath) || Boolean(verification.exists)));
+  for (const file of verificationAttempts) links.appendChild(fileLink('Verify attempt', file.path, true));
+  if (artifacts.length) {
+    for (const file of artifacts) links.appendChild(fileLink('Artifact', file.path, true));
+  } else if (task.artifact) {
+    links.appendChild(fileLink('Expected artifact', task.artifact, fileExists(task.artifact)));
+  }
+  card.appendChild(links);
+  return card;
+}
+
+function fileLink(label, path, exists) {
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = `file-link ${exists ? 'exists' : ''}`;
+  row.disabled = !exists;
+  const labelNode = document.createElement('span');
+  labelNode.textContent = label;
+  row.appendChild(labelNode);
+  const pathNode = document.createElement('strong');
+  pathNode.textContent = path;
+  row.appendChild(pathNode);
+  if (exists) row.onclick = () => openFile(path);
+  return row;
+}
+
+function buildFileTree(files) {
+  const root = { name: 'session', path: '', type: 'directory', children: [] };
+  for (const file of files) {
+    const parts = file.path.split('/');
+    let node = root;
+    let currentPath = '';
+    for (const part of parts.slice(0, -1)) {
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      let child = node.children.find((item) => item.type === 'directory' && item.name === part);
+      if (!child) {
+        child = { name: part, path: currentPath, type: 'directory', children: [] };
+        node.children.push(child);
+      }
+      node = child;
+    }
+    node.children.push({ ...file, type: 'file' });
+  }
+  sortTree(root);
+  return root;
+}
+
+function sortTree(node) {
+  if (!node.children) return;
+  node.children.sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  for (const child of node.children) sortTree(child);
+}
+
+function fileTreeNode(node, depth = 0) {
+  const wrap = document.createElement('div');
+  wrap.className = depth === 0 ? 'file-tree' : 'file-tree-branch';
+
+  for (const child of node.children || []) {
+    if (child.type === 'directory') {
+      const details = document.createElement('details');
+      details.className = 'file-folder';
+      details.open = depth < 1 && child.name !== 'workspaces';
+      const summary = document.createElement('summary');
+      summary.textContent = child.name;
+      details.appendChild(summary);
+      details.appendChild(fileTreeNode(child, depth + 1));
+      wrap.appendChild(details);
+      continue;
+    }
+
+    const item = itemNode(child.name, `${child.kind} / ${child.size_bytes} bytes`, { exists: true });
+    item.classList.add('file-item');
+    item.style.setProperty('--depth', depth);
+    item.onclick = () => openFile(child.path);
+    wrap.appendChild(item);
+  }
+  return wrap;
+}
+
+function fileExists(path) {
+  return state.files.some((file) => file.path === path);
+}
+
+function safeId(value) {
+  return String(value).replace(/[^a-zA-Z0-9._-]+/g, '_').replace(/^[._]+|[._]+$/g, '') || 'task';
 }
 
 function itemNode(title, subtitle, options = {}) {
@@ -435,7 +566,7 @@ function itemNode(title, subtitle, options = {}) {
 }
 
 async function openDocument(name) {
-  const data = await api(`/api/session/documents/${encodeURIComponent(name)}`);
+  const data = await api(`/api/session/documents/${encodePath(name)}`);
   openText(name, name.endsWith('.json') ? 'json' : 'markdown', data.content);
 }
 
@@ -456,6 +587,16 @@ function openText(title, kind, content) {
     body.appendChild(pre);
   }
   el('viewer').showModal();
+}
+
+async function openFile(path) {
+  const data = await api(`/api/session/documents/${encodePath(path)}`);
+  const kind = path.endsWith('.md') ? 'markdown' : 'json';
+  openText(path, kind, data.content);
+}
+
+function encodePath(path) {
+  return String(path).split('/').map(encodeURIComponent).join('/');
 }
 
 function connectSSE() {

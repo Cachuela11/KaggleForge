@@ -3,19 +3,34 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+if [ -n "${PYTHON_BIN:-}" ]; then
+  PYTHON_CMD="$PYTHON_BIN"
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_CMD="python3"
+else
+  PYTHON_CMD="python"
+fi
+
 VENV_DIR="${VENV_DIR:-.venv}"
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8000}"
 
 if [ ! -d "$VENV_DIR" ]; then
   echo "[KaggleForge] creating virtual environment: $VENV_DIR"
-  "$PYTHON_BIN" -m venv "$VENV_DIR"
+  "$PYTHON_CMD" -m venv "$VENV_DIR"
 fi
 
-PY="$VENV_DIR/bin/python"
+if [ -x "$VENV_DIR/bin/python" ]; then
+  PY="$VENV_DIR/bin/python"
+elif [ -x "$VENV_DIR/Scripts/python.exe" ]; then
+  PY="$VENV_DIR/Scripts/python.exe"
+else
+  PY=""
+fi
+
 if [ ! -x "$PY" ]; then
-  echo "[KaggleForge] virtual environment python not found: $PY" >&2
+  echo "[KaggleForge] virtual environment python not found under: $VENV_DIR" >&2
+  echo "[KaggleForge] checked: $VENV_DIR/bin/python and $VENV_DIR/Scripts/python.exe" >&2
   exit 1
 fi
 

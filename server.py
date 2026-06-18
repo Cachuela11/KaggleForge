@@ -138,6 +138,41 @@ async def list_documents() -> list[dict[str, Any]]:
     return items
 
 
+@app.get("/api/session/files")
+async def list_session_files() -> list[dict[str, Any]]:
+    db = _session_required()
+    root = db.session_dir
+    files: list[dict[str, Any]] = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(root).as_posix()
+        files.append({
+            "path": relative,
+            "name": path.name,
+            "directory": path.parent.relative_to(root).as_posix() if path.parent != root else "",
+            "size_bytes": path.stat().st_size,
+            "kind": _file_kind(relative),
+            "extension": path.suffix.lower().lstrip("."),
+        })
+    return files
+
+
+def _file_kind(relative_path: str) -> str:
+    first = relative_path.split("/", 1)[0]
+    if first == "tasks":
+        return "task"
+    if first == "verifications":
+        return "verification"
+    if first == "artifacts":
+        return "artifact"
+    if first == "workspaces":
+        return "workspace"
+    if relative_path.startswith("paper") or relative_path.startswith("report_"):
+        return "report"
+    return "document"
+
+
 @app.get("/api/session/documents/{name:path}")
 async def get_document(name: str) -> dict[str, str]:
     path = _resolve_session_path(name)
