@@ -141,6 +141,10 @@ async def list_documents() -> list[dict[str, Any]]:
 @app.get("/api/session/files")
 async def list_session_files() -> list[dict[str, Any]]:
     db = _session_required()
+    return _session_files(db)
+
+
+def _session_files(db) -> list[dict[str, Any]]:
     root = db.session_dir
     files: list[dict[str, Any]] = []
     for path in sorted(root.rglob("*")):
@@ -156,6 +160,62 @@ async def list_session_files() -> list[dict[str, Any]]:
             "extension": path.suffix.lower().lstrip("."),
         })
     return files
+
+
+@app.get("/api/session/task-runs")
+async def list_task_runs() -> list[dict[str, Any]]:
+    db = _session_required()
+    files = _session_files(db)
+    file_paths = {item["path"] for item in files}
+    plan = db.get_plan()
+    runs = []
+    for task in plan:
+        task_id = str(task.get("id", ""))
+        safe_id = db.safe_id(task_id)
+        output_path = f"tasks/{safe_id}.md"
+        verification_path = f"verifications/{safe_id}.json"
+        output_attempts = [
+            item for item in files
+            if item["path"].startswith(f"tasks/{safe_id}.attempt_")
+        ]
+        verification_attempts = [
+            item for item in files
+            if item["path"].startswith(f"verifications/{safe_id}.attempt_")
+        ]
+        artifacts = [
+            item for item in files
+            if item["path"].startswith(f"artifacts/{safe_id}/")
+        ]
+        verification = db.get_verification(task_id)
+        workspace = db.session_dir / "workspaces" / safe_id
+        children = [
+            str(item.get("id"))
+            for item in plan
+            if str(item.get("parent", "")) == task_id
+        ]
+        runs.append({
+            "task_id": task_id,
+            "safe_id": safe_id,
+            "title": task.get("title", ""),
+            "description": task.get("description", ""),
+            "status": task.get("status", "pending"),
+            "dependencies": task.get("dependencies", []),
+            "parent": task.get("parent", ""),
+            "artifact": task.get("artifact", ""),
+            "workspace": workspace.relative_to(db.session_dir).as_posix() if workspace.exists() else "",
+            "attempt_count": max(len(output_attempts), len(verification_attempts)),
+            "verification": verification,
+            "redecompose_children": children,
+            "files": {
+                "output": output_path if output_path in file_paths else "",
+                "output_attempts": output_attempts,
+                "verification": verification_path if verification_path in file_paths else "",
+                "verification_attempts": verification_attempts,
+                "artifacts": artifacts,
+                "expected_artifact": task.get("artifact", ""),
+            },
+        })
+    return runs
 
 
 def _file_kind(relative_path: str) -> str:

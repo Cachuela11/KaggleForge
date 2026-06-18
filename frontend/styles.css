@@ -569,6 +569,11 @@ input {
   background: rgba(158, 216, 199, 0.04);
 }
 
+.task-card.running {
+  border-color: rgba(185, 215, 242, 0.28);
+  background: rgba(185, 215, 242, 0.055);
+}
+
 .task-card.failed {
   border-color: rgba(240, 154, 163, 0.32);
   background: rgba(240, 154, 163, 0.055);
@@ -603,6 +608,50 @@ input {
   color: var(--muted-2);
   margin-top: 6px;
   overflow-wrap: anywhere;
+}
+
+.task-run-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.task-meta-pill {
+  max-width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.085);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 11px;
+  padding: 3px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-review,
+.task-children {
+  margin-top: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 8px;
+  padding: 9px 10px;
+  color: var(--muted);
+  background: rgba(0, 0, 0, 0.2);
+  overflow-wrap: anywhere;
+}
+
+.task-review {
+  max-height: 120px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.task-children {
+  color: var(--accent-strong);
+  border-color: rgba(158, 216, 199, 0.18);
+  background: rgba(158, 216, 199, 0.035);
 }
 
 .task-file-list {

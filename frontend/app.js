@@ -6,6 +6,8 @@ const state = {
   artifacts: [],
   documents: {},
   files: [],
+  taskRuns: [],
+  liveTaskRuns: {},
   stages: {},
   agents: {},
 };
@@ -139,6 +141,8 @@ function clearSessionView() {
   state.artifacts = [];
   state.documents = {};
   state.files = [];
+  state.taskRuns = [];
+  state.liveTaskRuns = {};
   el('session-label').textContent = '';
   el('summary').textContent = 'Starting new session.';
   renderTab();
@@ -192,6 +196,7 @@ function updateRunState(event) {
   }
 
   if (event.phase) {
+    updateTaskRunEvent(event);
     const agentName = event.phase;
     if (agentName === 'kaggle') {
       renderRunState();
@@ -215,6 +220,29 @@ function updateRunState(event) {
   }
 
   renderRunState();
+}
+
+function updateTaskRunEvent(event) {
+  if (!event.task_id && !event.task_ids?.length) return;
+  const taskIds = event.task_ids?.length ? event.task_ids : [event.task_id];
+  for (const taskId of taskIds) {
+    if (!taskId) continue;
+    const current = state.liveTaskRuns[taskId] || {};
+    const next = { ...current, task_id: taskId };
+    if (event.batch) next.batch = event.batch;
+    if (event.attempt) next.current_attempt = event.attempt;
+    if (event.max_attempts) next.max_attempts = event.max_attempts;
+    if (event.phase) next.phase = event.phase;
+    if (event.status) next.event_status = event.status;
+    if (event.workspace) next.workspace = event.workspace;
+    if (event.review) next.review = event.review;
+    if (event.verification) next.verification = event.verification;
+    if (event.child_ids) next.redecompose_children = event.child_ids;
+    if (event.status === 'retrying') next.retrying = true;
+    if (event.status === 'redecomposing' || event.status === 'redecomposed') next.recompose = true;
+    state.liveTaskRuns[taskId] = next;
+  }
+  if (state.activeTab === 'tasks') renderTab();
 }
 
 function normalizeStatus(status) {
@@ -342,6 +370,11 @@ async function refreshSession() {
   } catch {
     state.artifacts = [];
   }
+  try {
+    state.taskRuns = await api('/api/session/task-runs');
+  } catch {
+    state.taskRuns = [];
+  }
   renderTab();
 }
 
@@ -396,12 +429,13 @@ function renderPlan(box) {
 }
 
 function renderTasks(box) {
-  if (!state.plan.length) {
+  const runs = state.taskRuns.length ? state.taskRuns : state.plan.map(fallbackTaskRun);
+  if (!runs.length) {
     box.textContent = 'No tasks yet.';
     return;
   }
-  for (const task of state.plan) {
-    box.appendChild(taskNode(task));
+  for (const run of runs) {
+    box.appendChild(taskNode(run));
   }
 }
 
@@ -417,50 +451,127 @@ function renderArtifacts(box) {
   }
 }
 
-function taskNode(task) {
+function fallbackTaskRun(task) {
   const safe = safeId(task.id);
+  return {
+    task_id: String(task.id),
+    safe_id: safe,
+    title: task.title || 'Task',
+    description: task.description || '',
+    status: task.status || 'pending',
+    dependencies: task.dependencies || [],
+    parent: task.parent || '',
+    artifact: task.artifact || '',
+    workspace: '',
+    attempt_count: 0,
+    verification: {},
+    redecompose_children: [],
+    files: {
+      output: fileExists(`tasks/${safe}.md`) ? `tasks/${safe}.md` : '',
+      output_attempts: state.files.filter((file) => file.path.startsWith(`tasks/${safe}.attempt_`)),
+      verification: fileExists(`verifications/${safe}.json`) ? `verifications/${safe}.json` : '',
+      verification_attempts: state.files.filter((file) => file.path.startsWith(`verifications/${safe}.attempt_`)),
+      artifacts: state.files.filter((file) => file.path.startsWith(`artifacts/${safe}/`)),
+      expected_artifact: task.artifact || '',
+    },
+  };
+}
+
+function taskNode(run) {
+  const live = state.liveTaskRuns[run.task_id] || {};
+  const safe = run.safe_id || safeId(run.task_id);
   const files = state.files || [];
-  const outputPath = `tasks/${safe}.md`;
-  const verificationPath = `verifications/${safe}.json`;
-  const outputAttempts = files.filter((file) => file.path.startsWith(`tasks/${safe}.attempt_`));
-  const verificationAttempts = files.filter((file) => file.path.startsWith(`verifications/${safe}.attempt_`));
-  const artifacts = files.filter((file) => file.path.startsWith(`artifacts/${safe}/`));
-  const verification = state.documents[verificationPath] || {};
+  const runFiles = run.files || {};
+  const outputPath = runFiles.output || `tasks/${safe}.md`;
+  const verificationPath = runFiles.verification || `verifications/${safe}.json`;
+  const outputAttempts = runFiles.output_attempts || files.filter((file) => file.path.startsWith(`tasks/${safe}.attempt_`));
+  const verificationAttempts = runFiles.verification_attempts || files.filter((file) => file.path.startsWith(`verifications/${safe}.attempt_`));
+  const artifacts = runFiles.artifacts || files.filter((file) => file.path.startsWith(`artifacts/${safe}/`));
+  const verification = live.verification || run.verification || {};
+  const liveStatus = normalizeStatus(live.event_status);
+  const status = liveStatus === 'running' ? 'running' : run.status;
+  const phase = live.phase || (verification.pass !== undefined ? 'verify' : 'execute');
+  const attemptCount = Math.max(
+    Number(run.attempt_count || 0),
+    outputAttempts.length,
+    verificationAttempts.length,
+    Number(live.current_attempt || 0),
+  );
+  const maxAttempts = live.max_attempts || '';
+  const children = live.redecompose_children || run.redecompose_children || [];
 
   const card = document.createElement('div');
-  card.className = `task-card ${task.status === 'completed' ? 'exists' : ''} ${task.status === 'failed' ? 'failed' : ''}`;
+  card.className = `task-card ${status === 'completed' ? 'exists' : ''} ${status === 'failed' ? 'failed' : ''} ${status === 'running' ? 'running' : ''}`;
 
   const header = document.createElement('div');
   header.className = 'task-card-head';
   const title = document.createElement('div');
   title.className = 'task-card-title';
-  title.textContent = `[${task.id}] ${task.title || 'Task'}`;
+  title.textContent = `[${run.task_id}] ${run.title || 'Task'}`;
   header.appendChild(title);
 
   const badge = document.createElement('span');
   badge.className = 'task-card-badge';
-  badge.textContent = task.status || 'pending';
+  badge.textContent = status || 'pending';
   header.appendChild(badge);
   card.appendChild(header);
 
   const desc = document.createElement('div');
   desc.className = 'task-card-desc';
-  desc.textContent = task.description || task.artifact || '';
+  desc.textContent = run.description || run.artifact || '';
   card.appendChild(desc);
+
+  const meta = document.createElement('div');
+  meta.className = 'task-run-meta';
+  meta.appendChild(metaPill('phase', phase));
+  meta.appendChild(metaPill('batch', live.batch || '-'));
+  meta.appendChild(metaPill('attempts', maxAttempts ? `${attemptCount}/${maxAttempts}` : String(attemptCount || 0)));
+  meta.appendChild(metaPill('verify', verifyLabel(verification)));
+  if (live.workspace || run.workspace) meta.appendChild(metaPill('workspace', live.workspace || run.workspace));
+  if (live.retrying) meta.appendChild(metaPill('retry', 'active'));
+  if (verification.redecompose || live.recompose || children.length) meta.appendChild(metaPill('redecompose', children.length ? children.join(', ') : 'true'));
+  card.appendChild(meta);
+
+  const review = live.review || verification.review || '';
+  if (review) {
+    const reviewBox = document.createElement('div');
+    reviewBox.className = 'task-review';
+    reviewBox.textContent = review;
+    card.appendChild(reviewBox);
+  }
+
+  if (children.length) {
+    const childBox = document.createElement('div');
+    childBox.className = 'task-children';
+    childBox.textContent = `Children: ${children.join(', ')}`;
+    card.appendChild(childBox);
+  }
 
   const links = document.createElement('div');
   links.className = 'task-file-list';
-  links.appendChild(fileLink('Output', outputPath, fileExists(outputPath)));
+  links.appendChild(fileLink('Output', outputPath || `tasks/${safe}.md`, Boolean(outputPath) && fileExists(outputPath)));
   for (const file of outputAttempts) links.appendChild(fileLink('Output attempt', file.path, true));
-  links.appendChild(fileLink('Verification', verificationPath, fileExists(verificationPath) || Boolean(verification.exists)));
+  links.appendChild(fileLink('Verification', verificationPath || `verifications/${safe}.json`, Boolean(verificationPath) && fileExists(verificationPath)));
   for (const file of verificationAttempts) links.appendChild(fileLink('Verify attempt', file.path, true));
   if (artifacts.length) {
     for (const file of artifacts) links.appendChild(fileLink('Artifact', file.path, true));
-  } else if (task.artifact) {
-    links.appendChild(fileLink('Expected artifact', task.artifact, fileExists(task.artifact)));
+  } else if (run.artifact) {
+    links.appendChild(fileLink('Expected artifact', run.artifact, fileExists(run.artifact)));
   }
   card.appendChild(links);
   return card;
+}
+
+function metaPill(label, value) {
+  const pill = document.createElement('span');
+  pill.className = 'task-meta-pill';
+  pill.textContent = `${label}: ${value}`;
+  return pill;
+}
+
+function verifyLabel(verification) {
+  if (!verification || verification.pass === undefined) return '-';
+  return verification.pass ? 'passed' : 'failed';
 }
 
 function fileLink(label, path, exists) {
