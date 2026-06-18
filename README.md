@@ -35,73 +35,170 @@ KaggleForge 自己负责 workflow 编排、文件状态管理、前端展示和�
 
 KaggleForge 的核心原则是：每个 agent 节点对应一次独立的 Codex CLI 执行；阶段之间不靠对话记忆传递信息，只靠 session 目录中的文件交接。
 
-```text
-用户输入 Kaggle URL
-  |
-  v
-source.md
-  |
-  v
-[Intake stage]
-  |
-  +-- Kaggle fetch（系统步骤，不是 agent）
-  |     输入: source.md
-  |     输出: competition.json, task.md, 下载/确认 data/<competition>/
-  |
-  +-- Calibrate agent
-        输入: task.md, competition.json, runtime 配置摘要
-        输出: calibration.md
-  |
-  v
-[Research stage]
-  |
-  +-- Strategy agent
-  |     输入: task.md, competition.json, calibration.md
-  |     输出: strategy.md
-  |
-  +-- Decompose agent
-  |     输入: task.md, competition.json, calibration.md, strategy.md
-  |     输出: plan_tree.json, plan_list.json
-  |
-  +-- Execute agents（按 DAG 分批并行）
-  |     输入: 单个 task、依赖任务 summary、task.md、competition.json、strategy.md、plan_list.json
-  |     工作区: workspaces/<task_id>/
-  |     输出: tasks/<task_id>.md, artifacts/<task_id>/*
-  |
-  +-- Verify agent（每个 execute task 后执行）
-  |     输入: 当前 task 定义, tasks/<task_id>.md
-  |     输出: verifications/<task_id>.json
-  |
-  +-- Retry / Redecompose
-  |     retry 输入: verify review、上一次 output、同一个 task workspace
-  |     retry 输出: 新 attempt 的 tasks/*.attempt_N.md 和 verifications/*.attempt_N.json
-  |     redecompose 输入: failed task、execute output、verify review、原 plan
-  |     redecompose 输出: 更新后的 plan_tree.json、plan_list.json
-  |
-  +-- Evaluate agent
-        输入: strategy.md, plan_list.json, completed task summaries, artifacts manifest
-        输出: evaluation.json, results_summary.json, results_summary.md
-  |
-  v
-[Report stage]
-  |
-  +-- Collect context（系统步骤，不是 agent）
-  |     输入: task.md, competition.json, calibration.md, strategy.md,
-  |           plan_list.json, tasks/, verifications/, evaluation.json,
-  |           results_summary.md, artifacts/
-  |     输出: report_context.json, report_context.md
-  |
-  +-- Writer agent
-  |     输入: report_context.md
-  |     输出: paper.md
-  |
-  +-- Reviewer agent
-  |     输入: report_context.md, paper.md
-  |     输出: report_review.md, report_review.json
-  |
-  +-- Polish agent
-        输入: report_context.md, paper.md, report_review.json
-        输出: paper_polished.md
+```mermaid
+flowchart TD
+    URL["用户输入 Kaggle Competition URL"] --> SOURCE["source.md<br/>保存原始输入"]
+
+    subgraph INTAKE["Intake Stage"]
+        SOURCE --> FETCH["Kaggle Fetch<br/>系统步骤，不是 agent"]
+        FETCH --> COMP["competition.json<br/>竞赛元数据"]
+        FETCH --> TASK["task.md<br/>任务说明"]
+        FETCH --> DATA["data/competition_name/<br/>train/test/sample_submission 等数据文件"]
+
+        TASK --> CAL["Calibrate Agent<br/>定义单次 agent 执行的原子边界"]
+        COMP --> CAL
+        DATA --> CAL
+        CAL --> CALMD["calibration.md<br/>原子任务拆分准则"]
+    end
+
+    subgraph RESEARCH["Research Stage"]
+        TASK --> STRAT["Strategy Agent<br/>制定整体解题策略"]
+        COMP --> STRAT
+        CALMD --> STRAT
+        STRAT --> STRATMD["strategy.md<br/>建模与执行策略"]
+
+        TASK --> DEC["Decompose Agent<br/>将策略拆成 DAG 原子任务"]
+        COMP --> DEC
+        CALMD --> DEC
+        STRATMD --> DEC
+        DEC --> PLANTREE["plan_tree.json<br/>树状任务结构"]
+        DEC --> PLANLIST["plan_list.json<br/>可执行任务列表"]
+
+        PLANLIST --> DAG["DAG Scheduler<br/>按 dependencies 分批"]
+        DAG --> B1["Batch 1<br/>无依赖任务"]
+        DAG --> B2["Batch 2<br/>依赖 Batch 1"]
+        DAG --> BN["Batch N"]
+
+        B1 --> W1["workspaces/task_1/<br/>独立执行目录"]
+        B1 --> W2["workspaces/task_2/<br/>独立执行目录"]
+        B2 --> W3["workspaces/task_3/<br/>独立执行目录"]
+
+        TASK --> W1
+        COMP --> W1
+        STRATMD --> W1
+        PLANLIST --> W1
+
+        TASK --> W2
+        COMP --> W2
+        STRATMD --> W2
+        PLANLIST --> W2
+
+        TASK --> W3
+        COMP --> W3
+        STRATMD --> W3
+        PLANLIST --> W3
+
+        W1 --> EX1["Execute Agent<br/>task 1 codex exec"]
+        W2 --> EX2["Execute Agent<br/>task 2 codex exec"]
+        W3 --> EX3["Execute Agent<br/>task 3 codex exec"]
+
+        EX1 --> OUT1["tasks/1.md<br/>执行输出"]
+        EX2 --> OUT2["tasks/2.md<br/>执行输出"]
+        EX3 --> OUT3["tasks/3.md<br/>执行输出"]
+
+        EX1 --> ART1["artifacts/1/*<br/>task 1 产物"]
+        EX2 --> ART2["artifacts/2/*<br/>task 2 产物"]
+        EX3 --> ART3["artifacts/3/*<br/>task 3 产物"]
+
+        OUT1 --> V1["Verify Agent<br/>检查 task 1"]
+        OUT2 --> V2["Verify Agent<br/>检查 task 2"]
+        OUT3 --> V3["Verify Agent<br/>检查 task 3"]
+
+        PLANLIST --> V1
+        PLANLIST --> V2
+        PLANLIST --> V3
+
+        V1 --> VR1["verifications/1.json"]
+        V2 --> VR2["verifications/2.json"]
+        V3 --> VR3["verifications/3.json"]
+
+        VR1 --> P1{"pass?"}
+        VR2 --> P2{"pass?"}
+        VR3 --> P3{"pass?"}
+
+        P1 -- "yes" --> DONE1["task 1 completed"]
+        P2 -- "yes" --> DONE2["task 2 completed"]
+        P3 -- "yes" --> DONE3["task 3 completed"]
+
+        P1 -- "no: retry" --> EX1
+        P2 -- "no: retry" --> EX2
+        P3 -- "no: retry" --> EX3
+
+        P1 -- "no: redecompose" --> RDEC["Redecompose Agent<br/>拆分失败任务"]
+        P2 -- "no: redecompose" --> RDEC
+        P3 -- "no: redecompose" --> RDEC
+
+        OUT1 --> RDEC
+        OUT2 --> RDEC
+        OUT3 --> RDEC
+        VR1 --> RDEC
+        VR2 --> RDEC
+        VR3 --> RDEC
+        PLANLIST --> RDEC
+
+        RDEC --> PLANTREE_NEW["更新 plan_tree.json"]
+        RDEC --> PLANLIST_NEW["更新 plan_list.json"]
+        PLANLIST_NEW --> DAG
+
+        DONE1 --> EVAL["Evaluate Agent<br/>评估 research 阶段"]
+        DONE2 --> EVAL
+        DONE3 --> EVAL
+        ART1 --> EVAL
+        ART2 --> EVAL
+        ART3 --> EVAL
+        PLANLIST --> EVAL
+        STRATMD --> EVAL
+        EVAL --> EVALJSON["evaluation.json<br/>评估结论"]
+        EVAL --> SUMMARY["results_summary.md / results_summary.json<br/>研究阶段总结"]
+    end
+
+    subgraph REPORT["Report Stage"]
+        TASK --> COLLECT["Collect Context<br/>系统步骤，不是 agent"]
+        COMP --> COLLECT
+        CALMD --> COLLECT
+        STRATMD --> COLLECT
+        PLANLIST --> COLLECT
+        OUT1 --> COLLECT
+        OUT2 --> COLLECT
+        OUT3 --> COLLECT
+        VR1 --> COLLECT
+        VR2 --> COLLECT
+        VR3 --> COLLECT
+        ART1 --> COLLECT
+        ART2 --> COLLECT
+        ART3 --> COLLECT
+        EVALJSON --> COLLECT
+        SUMMARY --> COLLECT
+        COLLECT --> CTXJSON["report_context.json<br/>结构化事实包"]
+        COLLECT --> CTXMD["report_context.md<br/>给 report agents 的上下文"]
+
+        CTXMD --> WRITER["Writer Agent<br/>生成技术报告初稿"]
+        WRITER --> PAPER["paper.md<br/>报告初稿"]
+
+        CTXMD --> REVIEWER["Reviewer Agent<br/>审查报告是否忠实于事实"]
+        PAPER --> REVIEWER
+        REVIEWER --> REVIEWJSON["report_review.json<br/>结构化审查意见"]
+        REVIEWER --> REVIEWMD["report_review.md<br/>原始审查输出"]
+
+        CTXMD --> POLISH["Polish Agent<br/>根据审查意见润色"]
+        PAPER --> POLISH
+        REVIEWJSON --> POLISH
+        POLISH --> FINAL["paper_polished.md<br/>最终报告"]
+    end
+
+    FINAL --> END["Pipeline Completed"]
+
+    classDef input fill:#1f2937,stroke:#94a3b8,color:#f8fafc;
+    classDef system fill:#312e81,stroke:#a5b4fc,color:#f8fafc;
+    classDef agent fill:#13251f,stroke:#9ed8c7,color:#f8fafc;
+    classDef file fill:#1b1d24,stroke:#8b949e,color:#f8fafc;
+    classDef decision fill:#2b2115,stroke:#e4c987,color:#f8fafc;
+
+    class URL,SOURCE input;
+    class FETCH,DAG,COLLECT system;
+    class CAL,STRAT,DEC,EX1,EX2,EX3,V1,V2,V3,RDEC,EVAL,WRITER,REVIEWER,POLISH agent;
+    class COMP,TASK,DATA,CALMD,STRATMD,PLANTREE,PLANLIST,W1,W2,W3,OUT1,OUT2,OUT3,ART1,ART2,ART3,VR1,VR2,VR3,PLANTREE_NEW,PLANLIST_NEW,EVALJSON,SUMMARY,CTXJSON,CTXMD,PAPER,REVIEWJSON,REVIEWMD,FINAL file;
+    class P1,P2,P3 decision;
 ```
 
 ### Agent 输入输出表
